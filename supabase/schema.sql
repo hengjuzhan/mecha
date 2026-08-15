@@ -137,6 +137,68 @@ revoke all on function admin_import(jsonb, text) from public;
 grant execute on function admin_import(jsonb, text) to anon, authenticated;
 
 -- ============================================================
+-- 访客留言板：表 + RPC（支持楼中楼回复；匿名可读写）
+-- parent_id 指向上一条留言 id，顶层为 null
+-- ============================================================
+create table if not exists guest_messages (
+  id text primary key,
+  parent_id text references guest_messages(id) on delete cascade,
+  name text not null default '',
+  content text not null default '',
+  ts bigint not null
+);
+create index if not exists idx_guest_ts on guest_messages (ts desc);
+
+create or replace function guest_list()
+returns table (id text, parent_id text, name text, content text, ts bigint)
+language sql
+security definer stable
+as $$
+  select id, parent_id, name, content, ts
+  from guest_messages
+  order by ts asc;
+$$;
+
+create or replace function guest_add(p_id text, p_name text, p_content text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_id text;
+begin
+  v_id := 'g' || substr(md5(random()::text), 1, 12);
+  insert into guest_messages (id, parent_id, name, content, ts)
+  values (v_id, nullif(p_id, ''), coalesce(p_name, ''), substr(p_content, 1, 300), floor(extract(epoch from now()) * 1000)::bigint);
+end;
+$$;
+
+create or replace function guest_delete(p_id text, token text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_token text;
+begin
+  select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if token is null or v_token = '' or token <> v_token then
+    raise exception 'invalid admin token';
+  end if;
+  delete from guest_messages where id = p_id;
+end;
+$$;
+
+revoke all on function guest_list() from public;
+revoke all on function guest_add(text, text, text) from public;
+revoke all on function guest_delete(text, text) from public;
+grant execute on function guest_list() to anon, authenticated;
+grant execute on function guest_add(text, text, text) to anon, authenticated;
+grant execute on function guest_delete(text, text) to anon, authenticated;
+
+alter table guest_messages enable row level security;
+
+-- ============================================================
 -- RPC：背景图上传配额（每日所有访客共享 DAILY_MAX 次）
 -- 前端「背景设置 → 上传」调用；匿名可执行
 -- ============================================================

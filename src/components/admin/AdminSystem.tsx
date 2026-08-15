@@ -335,6 +335,7 @@ export function SystemSection() {
     if (!url || !key) { setSettings({ supabase: null }); toast("已断开数据库连接", "ok"); return; }
     if (!/^https?:\/\//i.test(url)) { toast("URL 需以 http(s):// 开头", "warn"); return; }
     setSettings({ supabase: { url, key } });
+    window.dispatchEvent(new CustomEvent("mecha:guestbook-backend", { detail: { on: true } }));
     toast("数据库连接已保存", "ok");
   };
 

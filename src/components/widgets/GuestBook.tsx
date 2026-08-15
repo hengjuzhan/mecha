@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { addGuestMessage, deleteGuestMessage, guestbookStats, nextClearInDays, useGuestbook } from "../../lib/guestbook";
+import { useEffect, useMemo, useState } from "react";
+import { addGuestMessage, deleteGuestMessage, guestbookStats, initGuestbook, isGuestbookBackend, nextClearInDays, useGuestbook } from "../../lib/guestbook";
 import type { GuestMessage } from "../../lib/guestbook";
 import { toast } from "./Toast";
 import { isAdminSession } from "../admin/AdminLogin";
@@ -44,7 +44,7 @@ function MessageItem({
   msg: GuestMessage;
   replies: GuestMessage[];
   onReply: (m: GuestMessage) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<void>;
 }) {
   const [g1, g2] = avatarGradient(msg.name);
   const admin = isAdminSession();
@@ -117,17 +117,25 @@ function Composer({
   autoFocus,
   compact,
 }: {
-  onSend: (name: string, content: string) => boolean;
+  onSend: (name: string, content: string) => boolean | Promise<boolean>;
   placeholder: string;
   autoFocus?: boolean;
   compact?: boolean;
 }) {
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
+  const [sending, setSending] = useState(false);
 
-  const send = () => {
+  const send = async () => {
     if (!content.trim()) { toast("内容不能为空", "warn"); return; }
-    if (onSend(name, content)) { setContent(""); }
+    if (sending) return;
+    setSending(true);
+    try {
+      const ok = await onSend(name, content);
+      if (ok) setContent("");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -139,7 +147,7 @@ function Composer({
         rows={compact ? 2 : 3}
         maxLength={300}
         autoFocus={autoFocus}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
         className="w-full resize-none rounded-sm border border-[var(--c-border)] bg-transparent px-2 py-1.5 text-xs outline-none focus:border-[var(--c-cyan)]"
       />
       <div className="mt-1.5 flex items-center gap-1.5">
@@ -150,7 +158,9 @@ function Composer({
           maxLength={20}
           className="h-7 w-24 shrink-0 rounded-sm border border-[var(--c-border)] bg-transparent px-2 text-xs outline-none focus:border-[var(--c-cyan)]"
         />
-        <button type="button" className="btn-mech ml-auto h-7 shrink-0 px-3 text-xs" onClick={send}>发送 ⏎</button>
+        <button type="button" className="btn-mech ml-auto h-7 shrink-0 px-3 text-xs" onClick={() => void send()} disabled={sending}>
+          {sending ? "发送中…" : "发送 ⏎"}
+        </button>
       </div>
     </div>
   );
@@ -164,7 +174,19 @@ export function GuestBook() {
   const list = useGuestbook();
   const stats = guestbookStats();
   const clearIn = nextClearInDays();
+  const [backend, setBackend] = useState(isGuestbookBackend());
   const [replyTo, setReplyTo] = useState<GuestMessage | null>(null);
+
+  // 挂载时从数据库拉取留言；监听 guestbook-backend 事件（保存数据库连接后刷新）
+  useEffect(() => {
+    void initGuestbook();
+    const onBackend = () => {
+      setBackend(isGuestbookBackend());
+      void initGuestbook();
+    };
+    window.addEventListener("mecha:guestbook-backend", onBackend);
+    return () => window.removeEventListener("mecha:guestbook-backend", onBackend);
+  }, []);
 
   // 顶层留言（倒序，最新在上）与各自的回复（正序）
   const { top, byParent } = useMemo(() => {
@@ -184,16 +206,19 @@ export function GuestBook() {
     return { top, byParent: parents };
   }, [list]);
 
-  const send = (name: string, content: string, parentId: string | null) => {
-    if (addGuestMessage(name, content, parentId)) {
+  const send = async (name: string, content: string, parentId: string | null) => {
+    const ok = await addGuestMessage(name, content, parentId);
+    if (ok) {
       toast(parentId ? "已回复 TA～" : "留言成功，感谢你的来访！", "ok");
       return true;
     }
+    toast(isGuestbookBackend() ? "留言入库失败，请稍后再试" : "留言失败，请稍后再试", "warn");
     return false;
   };
 
-  const del = (id: string) => {
-    deleteGuestMessage(id);
+  const del = async (id: string) => {
+    const ok = await deleteGuestMessage(id);
+    if (!ok) { toast("删除失败，请稍后再试", "warn"); return; }
     if (replyTo?.id === id) setReplyTo(null);
     toast("已删除", "ok");
   };
@@ -204,7 +229,9 @@ export function GuestBook() {
         <span className="num text-[9px] tracking-[0.3em] text-[var(--c-orange)]">
           ◆ 留言板 · {stats.today}今日 / {stats.count}条
         </span>
-        <span className="num shrink-0 text-[9px] text-[var(--c-dim)]">♻ {clearIn}天后自动清空</span>
+        <span className="num shrink-0 text-[9px] text-[var(--c-dim)]">
+          {backend ? "☁ 云端保存" : `♻ ${clearIn === Infinity ? "" : `${clearIn}天`}后自动清空`}
+        </span>
       </div>
 
       {/* 新留言输入 */}
@@ -240,8 +267,8 @@ export function GuestBook() {
           </div>
           <Composer
             autoFocus
-            onSend={(n, c) => {
-              const ok = send(n, c, replyTo.id);
+            onSend={async (n, c) => {
+              const ok = await send(n, c, replyTo.id);
               if (ok) setReplyTo(null);
               return ok;
             }}
