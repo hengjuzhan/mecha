@@ -687,7 +687,7 @@ export function MechaPet() {
       </div>
 
       {searchOpen && (
-        <div className="fixed inset-0 z-[9600] flex items-start justify-center bg-black/20 pt-[28vh] backdrop-blur-[2px]"
+        <div className="fixed inset-0 z-[9600] flex items-start justify-center bg-black/70 pt-[28vh]"
           onClick={() => setSearchOpen(false)}>
           <div className="panel-glow w-[min(92vw,420px)] border border-[var(--c-cyan)] p-3"
             style={{ background: "var(--c-panel)" }}
