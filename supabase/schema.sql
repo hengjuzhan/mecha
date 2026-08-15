@@ -137,6 +137,39 @@ revoke all on function admin_import(jsonb, text) from public;
 grant execute on function admin_import(jsonb, text) to anon, authenticated;
 
 -- ============================================================
+-- RPC：背景图上传配额（每日所有访客共享 DAILY_MAX 次）
+-- 前端「背景设置 → 上传」调用；匿名可执行
+-- ============================================================
+create table if not exists bg_quota (
+  day date primary key,
+  used int not null default 0
+);
+
+create or replace function bg_quota_consume()
+returns table (ok boolean, remaining int)
+language plpgsql
+security definer
+as $$
+declare
+  v_used int;
+begin
+  insert into bg_quota (day, used) values (current_date, 1)
+  on conflict (day) do update set used = bg_quota.used + 1
+  returning used into v_used;
+  if v_used > 10 then
+    return query select false, greatest(0, 10 - v_used);
+  else
+    return query select true, greatest(0, 10 - v_used);
+  end if;
+end;
+$$;
+
+revoke all on function bg_quota_consume() from public;
+grant execute on function bg_quota_consume() to anon, authenticated;
+
+alter table bg_quota enable row level security;
+
+-- ============================================================
 -- 管理员令牌初始化（可选）：
 -- 将下方 token 替换为管理员口令的 SHA-256 十六进制值
 -- ============================================================

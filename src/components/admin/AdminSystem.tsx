@@ -310,11 +310,15 @@ export function DataSection() {
   );
 }
 
-/* ============ 系统：修改访问口令 ============ */
+/* ============ 系统：修改访问口令 / 数据库连接 ============ */
 export function SystemSection() {
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [newPw2, setNewPw2] = useState("");
+  const s = getSettings();
+  const [dbUrl, setDbUrl] = useState(s.supabase?.url ?? "");
+  const [dbKey, setDbKey] = useState(s.supabase?.key ?? "");
+  const [testing, setTesting] = useState(false);
 
   const changePw = async () => {
     if (newPw.length < 6) { toast("新口令至少 6 位", "warn"); return; }
@@ -325,9 +329,61 @@ export function SystemSection() {
     toast("口令已更新（SHA-256 存储）", "ok");
   };
 
+  const saveDb = () => {
+    const url = dbUrl.trim().replace(/\/+$/, "");
+    const key = dbKey.trim();
+    if (!url || !key) { setSettings({ supabase: null }); toast("已断开数据库连接", "ok"); return; }
+    if (!/^https?:\/\//i.test(url)) { toast("URL 需以 http(s):// 开头", "warn"); return; }
+    setSettings({ supabase: { url, key } });
+    toast("数据库连接已保存", "ok");
+  };
+
+  const testDb = async () => {
+    const url = dbUrl.trim().replace(/\/+$/, "");
+    const key = dbKey.trim();
+    if (!url || !key) { toast("请先填写 URL 与 Key", "warn"); return; }
+    setTesting(true);
+    try {
+      const res = await fetch(`${url}/rest/v1/rpc/bump_visits`, {
+        method: "POST",
+        headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (res.ok) {
+        const d = await res.json() as { today?: number; total?: number }[];
+        toast(`连接正常 · 今日 ${d?.[0]?.today ?? "?"} / 累计 ${d?.[0]?.total ?? "?"}`, "ok");
+      } else if (res.status === 404) {
+        toast("数据库未初始化（请先执行 schema.sql）", "warn");
+      } else {
+        toast(`连接失败（HTTP ${res.status}）`, "warn");
+      }
+    } catch {
+      toast("无法连接数据库", "warn");
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <Section title="▣ 系统 SYSTEM">
       <div className="rounded-sm border border-[var(--c-border)] p-3">
+        <h3 className="num mb-2 text-xs tracking-[0.25em] text-[var(--c-orange)]">数据库连接</h3>
+        <div className="flex flex-col gap-2">
+          <input className={inp} placeholder="Supabase 项目 URL（https://xxx.supabase.co）" value={dbUrl} onChange={(e) => setDbUrl(e.target.value)} />
+          <input className={inp} placeholder="Publishable / anon Key" value={dbKey} onChange={(e) => setDbKey(e.target.value)} />
+          <div className="flex gap-2">
+            <button type="button" className="btn-mech h-8 flex-1 text-xs" onClick={saveDb}>保存连接</button>
+            <button type="button" className="btn-mech mag h-8 flex-1 text-xs" onClick={() => void testDb()} disabled={testing}>
+              {testing ? "测试中…" : "测试连接"}
+            </button>
+          </div>
+        </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-[var(--c-dim)]">
+          用于访问计数与背景上传配额。需先在 Supabase SQL Editor 执行 schema.sql 初始化数据库；匿名可调用 RPC。
+        </p>
+      </div>
+
+      <div className="mt-3 rounded-sm border border-[var(--c-border)] p-3">
         <h3 className="num mb-2 text-xs tracking-[0.25em] text-[var(--c-orange)]">修改访问口令</h3>
         <div className="flex flex-col gap-2">
           <input type="password" className={inp} placeholder="原口令" value={oldPw} onChange={(e) => setOldPw(e.target.value)} />
