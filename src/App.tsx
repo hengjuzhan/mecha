@@ -55,9 +55,14 @@ function GlobalEffects() {
   useEffect(() => {
     void syncTextsFromCloud();
     void syncSiteDataFromCloud();
-    // 拉取云端共享背景（RightRail 也会拉，但这里保证首帧就应用，避免闪烁）
+    // 拉取云端共享背景（RightRail 也会拉，但这里保证首帧就应用，避免闪烁）。
+    // 云端明确返回（含空值）即覆盖本地：管理员清除后其他设备刷新也会同步清空本地缓存
     void cloud.bg.get().then((r) => {
-      if (r && r.bgImage) setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
+      if (!r) return;
+      const cur = getSettings();
+      if (cur.bgImage !== r.bgImage || cur.bgTone !== r.bgTone) {
+        setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
+      }
     });
   }, []);
 

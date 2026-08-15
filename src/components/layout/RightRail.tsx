@@ -51,11 +51,11 @@ export function RightRail() {
     if (!cloud.configured()) return;
     void cloud.bg.quotaRemaining(isAdmin).then((r) => { if (r !== Infinity) setRemaining(r); });
     void cloud.bg.get().then((r) => {
-      if (r && r.bgImage) {
-        const cur = getSettings();
-        if (cur.bgImage !== r.bgImage || cur.bgTone !== r.bgTone) {
-          setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
-        }
+      // 云端明确返回（含空值）即覆盖本地：管理员清除后刷新也会同步清空本地缓存
+      if (!r) return;
+      const cur = getSettings();
+      if (cur.bgImage !== r.bgImage || cur.bgTone !== r.bgTone) {
+        setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
       }
     });
   }, [isAdmin]);
