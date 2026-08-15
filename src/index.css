@@ -246,7 +246,10 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   background: color-mix(in srgb, var(--c-panel2) 50%, transparent);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   transition: transform 0.35s cubic-bezier(.2,.8,.3,1.2), opacity 0.35s ease;
+  overflow: hidden;
 }
+/* 占位卡文字永不换行，空间不足时裁剪而非折叠 */
+.ph-deck .ph-card span { white-space: nowrap; }
 .ph-deck .ph-1 { transform: rotate(-5deg) translateX(-3px); opacity: .3; }
 .ph-deck .ph-2 { transform: rotate(4deg) translateX(3px); opacity: .5; }
 .ph-deck .ph-3 { transform: rotate(0); opacity: 1; z-index: 2; }
@@ -405,6 +408,11 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   .text-\[10px\] { font-size: 13px !important; }
   .text-\[11px\] { font-size: 14px !important; }
   .text-xs { font-size: 13px !important; }
+}
+/* 占位卡文字保持紧凑 + 不换行，避免窄格内被放大后折叠/顶出 */
+@media (max-width: 1023px) {
+  .ph-deck .ph-card span.text-\[11px\] { font-size: 12px !important; }
+  .ph-deck .ph-card span.text-\[8px\] { font-size: 9px !important; }
 }
 
 /* ---- 平板（<1280px）：拖拽手柄加大触控热区，便于触屏自由缩放 ---- */
