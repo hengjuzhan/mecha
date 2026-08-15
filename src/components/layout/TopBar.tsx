@@ -14,6 +14,21 @@ const SCOPES: { id: string; label: string }[] = [
   { id: "github", label: "GitHub" },
 ];
 
+// 氛围增量程序：每天总增量固定在 800~1000（访客进入 +1 的真实访问不计入），按剩余时间匀速下发并带随机抖动
+const LS_ATMO = "mechanav.visits.atmo";
+interface AtmoState { date: string; added: number; target: number }
+function readAtmo(): AtmoState {
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_ATMO) || "") as AtmoState;
+    if (s && s.date === today && s.target >= 800 && s.target <= 1000) return s;
+  } catch { /* 跨天/损坏则重新抽取 */ }
+  return { date: today, added: 0, target: 800 + Math.floor(Math.random() * 201) };
+}
+function writeAtmo(s: AtmoState) {
+  try { localStorage.setItem(LS_ATMO, JSON.stringify(s)); } catch { /* ignore */ }
+}
+
 function MechaLogo() {
   return (
     <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true" className="drop-shadow-[0_0_6px_var(--c-cyan)]">
@@ -55,15 +70,26 @@ export function TopBar() {
       // 显示单调不减（避免多标签页/竞态回落）；管理员清空事件单独归零
       setVisits((v) => ({ today: Math.max(v.today, r.today), total: Math.max(v.total, r.total) }));
     };
-    // 进入页面计数 +1（真实访问）
+    // 进入页面计数 +1（真实访问，不计入每日氛围配额）
     void cloud.visits.bump(1).then(apply);
-    // 氛围增量：随机间隔（30s~2.5min）随机人数（+1~4），与云端同步累加
+    // 氛围增量：步进 2.5~4.5 分钟，每次按「剩余配额 / 预计剩余次数」下发，单次上限 12 保持自然
     let timer = 0;
     const tick = () => {
-      void cloud.visits.bump(1 + Math.floor(Math.random() * 4)).then(apply);
-      timer = window.setTimeout(tick, 30000 + Math.floor(Math.random() * 120000));
+      const st = readAtmo();
+      const remain = st.target - st.added;
+      if (remain > 0) {
+        const now = new Date();
+        const minsLeft = 1440 - (now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60);
+        const ticksLeft = Math.max(1, minsLeft / 3.5);
+        const ideal = remain / ticksLeft;
+        const add = Math.max(1, Math.min(remain, 12, Math.round(ideal * (0.6 + Math.random() * 0.8))));
+        st.added += add;
+        writeAtmo(st);
+        void cloud.visits.bump(add).then(apply);
+      }
+      timer = window.setTimeout(tick, (150 + Math.floor(Math.random() * 180)) * 1000);
     };
-    timer = window.setTimeout(tick, 30000 + Math.floor(Math.random() * 120000));
+    timer = window.setTimeout(tick, 30000 + Math.floor(Math.random() * 60000));
     // 管理员清空访问人数时，顶栏计数即时归零（随后从 1 重新开始）
     const onReset = () => setVisits({ today: 0, total: 0 });
     window.addEventListener("mecha:visits-reset", onReset);

@@ -8,6 +8,47 @@ const HITOKOTO_TYPES: Record<string, string> = {
   h: "影视", i: "诗词", j: "网易云", k: "哲学", l: "抖机灵",
 };
 
+/** 沙雕表情包合集：zhaoolee/ChineseBQB（GitHub 开源 110+ 表情包，含金馆长熊猫/沙雕企鹅等），
+ *  目录列表经 GitHub Contents API 获取（会话内缓存防限流），图片经 jsDelivr CDN 直连（CORS 全开、大陆友好） */
+const BQB_REPO = "zhaoolee/ChineseBQB";
+const MEME_PACKS = [
+  "015Golden_Curator_Panda金馆长熊猫🐼BQB",
+  "031Penguin_沙雕企鹅🐧BQB",
+  "001Funny_滑稽大佬😏BQB",
+  "020TATANBQB",
+  "034WhiteVillain_白色小人👶🏻BQB",
+  "048SpongeBob_海绵宝宝BQB",
+  "035TomAndJerry_猫和老鼠BQB",
+];
+const memeFiles = new Map<string, string[]>();
+
+async function fetchMemeUrl(): Promise<string | null> {
+  let pack = MEME_PACKS[Math.floor(Math.random() * MEME_PACKS.length)];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let names = memeFiles.get(pack);
+    if (!names) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 8000);
+        try {
+          const res = await fetch(`https://api.github.com/repos/${BQB_REPO}/contents/${encodeURIComponent(pack)}?ref=master`, { signal: ctrl.signal });
+          if (res.ok) {
+            const list = await res.json() as { name: string; type: string }[];
+            names = list.filter((e) => e.type === "file" && /\.(jpe?g|png|gif|webp)$/i.test(e.name)).map((e) => e.name);
+          }
+        } finally { clearTimeout(t); }
+        if (names && names.length) memeFiles.set(pack, names);
+      } catch { /* 换下一个包 */ }
+    }
+    if (names && names.length) {
+      const f = names[Math.floor(Math.random() * names.length)];
+      return `https://cdn.jsdelivr.net/gh/${BQB_REPO}@master/${encodeURIComponent(pack)}/${encodeURIComponent(f)}`;
+    }
+    pack = MEME_PACKS[Math.floor(Math.random() * MEME_PACKS.length)];
+  }
+  return null;
+}
+
 export function MoodPanel() {
   useTexts(); // 文案变化（管理员改字）时重渲染，保证 t() 实时同步
   const [quote, setQuote] = useState<{ text: string; from: string; tag: string } | null>(null);
@@ -47,7 +88,9 @@ export function MoodPanel() {
     setImg("");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sources: (() => Promise<string | null>)[] = [
-      // ① Bing 每日一图（微软官方风景壁纸，国内可直连）
+      // ① 沙雕表情包（ChineseBQB 开源合集：熊猫头/沙雕企鹅/滑稽等，经 jsDelivr CDN）
+      async () => fetchMemeUrl(),
+      // ② Bing 每日一图（微软官方风景壁纸，国内可直连）
       async () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const d = await fetcht<{ images?: { url?: string }[] }>(`https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt=zh-CN`, 8000);
@@ -56,9 +99,9 @@ export function MoodPanel() {
         const it = list[Math.floor(Math.random() * list.length)];
         return it.url ? `https://cn.bing.com${it.url}` : null;
       },
-      // ② picsum 随机摄影（按 seed 保证每次不同，直出图片）
+      // ③ picsum 随机摄影（按 seed 保证每次不同，直出图片）
       async () => `https://picsum.photos/seed/mood${Math.floor(Math.random() * 1e6)}/1200/800`,
-      // ③ picsum 随机兜底（无 seed，最大限度保证出图）
+      // ④ picsum 随机兜底（无 seed，最大限度保证出图）
       async () => `https://picsum.photos/1200/800?r=${Math.random()}`,
     ];
     for (let i = 0; i < sources.length; i++) {
@@ -125,13 +168,13 @@ export function MoodPanel() {
             <img
               key={img}
               src={img}
-              alt="风景图"
+              alt="表情包"
               className="h-full w-full object-cover"
               loading="lazy"
               onError={() => {
                 imgAtt.current += 1;
                 if (imgAtt.current >= 3) { setImgFail(true); return; }
-                imgSrc.current = (imgSrc.current + 1) % 3;
+                imgSrc.current = (imgSrc.current + 1) % 4;
                 void fetchImg();
               }}
             />
