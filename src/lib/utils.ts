@@ -88,15 +88,26 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** 滚动到目标并闪烁高亮 */
+/** 滚动到目标并闪烁高亮。
+    高亮用脱离 React 的临时覆盖层实现（叠加在目标元素上），
+    避免 React 重渲染用静态 className 覆盖掉手动添加的类。 */
 export function jumpToId(id: string) {
   const el = document.getElementById(id);
   if (!el) return false;
   el.scrollIntoView({ behavior: "smooth", block: "center" });
-  el.classList.remove("flash-target");
-  void el.offsetWidth;
-  el.classList.add("flash-target");
-  window.setTimeout(() => el.classList.remove("flash-target"), 4000);
+  window.setTimeout(() => {
+    const e2 = document.getElementById(id);
+    if (!e2) return;
+    const r = e2.getBoundingClientRect();
+    const o = document.createElement("div");
+    o.className = "flash-overlay";
+    o.style.left = `${r.left}px`;
+    o.style.top = `${r.top}px`;
+    o.style.width = `${r.width}px`;
+    o.style.height = `${r.height}px`;
+    document.body.appendChild(o);
+    window.setTimeout(() => o.remove(), 4400);
+  }, 650);
   return true;
 }
 

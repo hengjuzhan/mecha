@@ -212,13 +212,22 @@ textarea, input[type="text"], input[type="password"], input[type="search"] {
 }
 textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px color-mix(in srgb, var(--c-cyan) 25%, transparent); }
 
-/* ---- 高亮闪烁（搜索定位） ---- */
-@keyframes flashglow {
-  0% { box-shadow: 0 0 0 3px var(--c-cyan), 0 0 30px color-mix(in srgb, var(--c-cyan) 70%, transparent); }
-  30% { box-shadow: 0 0 0 3px var(--c-magenta), 0 0 30px color-mix(in srgb, var(--c-magenta) 70%, transparent); }
-  100% { box-shadow: 0 0 0 0 transparent, 0 0 0 transparent; }
+/* ---- 高亮闪烁（搜索定位，脱离 React 的临时覆盖层） ---- */
+.flash-overlay {
+  position: fixed;
+  z-index: 9800;
+  border: 2px solid var(--c-magenta);
+  border-radius: 3px;
+  pointer-events: none;
+  box-shadow: 0 0 0 3px var(--c-cyan), 0 0 34px color-mix(in srgb, var(--c-magenta) 75%, transparent);
+  background: color-mix(in srgb, var(--c-magenta) 22%, transparent);
+  animation: flashglow 2.2s ease-out 2;
 }
-.flash-target { animation: flashglow 1.8s ease-out 2; border-radius: 2px; }
+@keyframes flashglow {
+  0% { border-color: var(--c-cyan); box-shadow: 0 0 0 3px var(--c-cyan), 0 0 34px color-mix(in srgb, var(--c-cyan) 75%, transparent); background: color-mix(in srgb, var(--c-cyan) 26%, transparent); }
+  30% { border-color: var(--c-magenta); box-shadow: 0 0 0 3px var(--c-magenta), 0 0 34px color-mix(in srgb, var(--c-magenta) 75%, transparent); background: color-mix(in srgb, var(--c-magenta) 26%, transparent); }
+  100% { border-color: transparent; box-shadow: 0 0 0 0 transparent, 0 0 0 transparent; background: transparent; }
+}
 
 /* ---- 行内编辑（仅管理员后台模式生效） ---- */
 [data-admin="on"] [data-tk] { outline: 1px dashed color-mix(in srgb, var(--c-magenta) 60%, transparent); outline-offset: 2px; cursor: text; border-radius: 2px; }

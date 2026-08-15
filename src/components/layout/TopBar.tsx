@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getSettings, isBackendOk, setBackendOk, searchAll, setSettings, useStore, bumpVisitsLocal, type SearchHit } from "../../lib/dataService";
 import type { Announcement, Category, LinkItem } from "../../data/types";
 import { isSupabaseConfigured, bumpVisits } from "../../lib/supabase";
-import { extSearchURL, jumpToId, todayStr } from "../../lib/utils";
+import { extSearchURL, todayStr } from "../../lib/utils";
+import { locateHit } from "../../lib/locate";
 import { Clock } from "../widgets/Clock";
 
 const SCOPES: { id: string; label: string }[] = [
@@ -31,9 +32,7 @@ function MechaLogo() {
 }
 
 function hitJump(h: SearchHit) {
-  if (h.kind === "link") return jumpToId(`card-${h.ref.no}`);
-  if (h.kind === "cat") return jumpToId(`cat-${h.ref.no}`);
-  return jumpToId(`ann-${h.ref.no}`);
+  locateHit(h);
 }
 
 export function TopBar() {

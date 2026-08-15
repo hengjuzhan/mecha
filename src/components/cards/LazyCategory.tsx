@@ -18,6 +18,14 @@ const mountIO = typeof IntersectionObserver !== "undefined"
     )
   : null;
 
+/* 搜索定位：强制挂载指定编号的分类，即使它离屏未懒加载。 */
+const forced = new Set<number>();
+const forcedListeners = new Set<() => void>();
+export function forceMountCategory(no: number) {
+  forced.add(no);
+  forcedListeners.forEach((fn) => fn());
+}
+
 export const LazyCategory = memo(function LazyCategory({ cat }: { cat: Category }) {
   const [mounted, setMounted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -25,6 +33,7 @@ export const LazyCategory = memo(function LazyCategory({ cat }: { cat: Category 
   useEffect(() => {
     const el = ref.current;
     if (!el || !mountIO) { setMounted(true); return; }
+    if (forced.has(cat.no)) { setMounted(true); return; }
     const rect = el.getBoundingClientRect();
     if (rect.top < window.innerHeight + 1200 && rect.bottom > -1200) {
       setMounted(true);
@@ -32,11 +41,14 @@ export const LazyCategory = memo(function LazyCategory({ cat }: { cat: Category 
       (el as any)._catMount = () => setMounted(true);
       mountIO.observe(el);
     }
+    const onForced = () => { if (forced.has(cat.no)) setMounted(true); };
+    forcedListeners.add(onForced);
     return () => {
       mountIO!.unobserve(el);
       (el as any)._catMount = null;
+      forcedListeners.delete(onForced);
     };
-  }, []);
+  }, [cat.no]);
 
   return (
     <div id={`cat-${cat.no}`} data-anchor ref={ref}>

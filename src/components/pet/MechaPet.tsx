@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { prefersReducedMotion, jumpToId } from "../../lib/utils";
 import { searchAll } from "../../lib/dataService";
+import { prepareLocate, waitForId } from "../../lib/locate";
 import type { Announcement, Category, LinkItem } from "../../data/types";
 
 /**
@@ -228,6 +229,11 @@ export function MechaPet() {
     const q = raw.trim();
     setSearchOpen(false);
     if (!q) return;
+    // 管理员口令属于保密信息，一律不回答、不定位
+    if (/管理员\s*(密码|口令)|后台\s*(密码|口令)|admin\s*(password|pwd)|(密码|口令)\s*(是多少|是什么|怎么|哪里)/i.test(q)) {
+      showBubble("这个我不能告诉你哦～口令是保密哒！", 3800);
+      return;
+    }
     const hits = searchAll(q);
     if (hits.length === 0) {
       showBubble(`没找到「${q}」，换个关键词试试～`, 3800);
@@ -235,31 +241,33 @@ export function MechaPet() {
     }
     const h = hits[0];
     const ref = h.ref as LinkItem | Category | Announcement;
-    const id = h.kind === "link"
-      ? `card-${(ref as LinkItem).no}`
-      : h.kind === "cat"
-        ? `cat-${(ref as Category).no}`
-        : `ann-${(ref as Announcement).no}`;
+    const id = prepareLocate(h);
     const name = (ref as { name?: string; title?: string }).name || (ref as { title?: string }).title || "";
     locateAndGo(id, name);
   };
 
   const locateAndGo = (id: string, name: string) => {
-    if (!jumpToId(id)) return;
-    window.setTimeout(() => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const w = window.innerWidth;
-      const docH = Math.max(document.body.scrollHeight, window.innerHeight);
-      const size = mobile.current ? 56 : 80;
-      const tx = Math.max(20, Math.min(w - size - 20, r.left + r.width / 2 - size / 2));
-      const ty = Math.max(60, Math.min(docH - size - 60, r.top - size - 12));
-      task.current = { type: "go", target: { x: tx, y: ty } };
-      st.current = "walk";
-      startActiveRef.current();
-      showBubble(name ? `已带你去「${name}」，就是这里！` : "找到了，就在这里！", 4200);
-    }, 700);
+    // 目标元素可能因懒加载尚未渲染，轮询等待其出现（最长约 2.5s）
+    waitForId(id, () => {
+      if (!jumpToId(id)) {
+        showBubble(name ? `「${name}」加载中，稍后再试～` : "目标还在路上，稍后再试～", 3000);
+        return;
+      }
+      window.setTimeout(() => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        const w = window.innerWidth;
+        const docH = Math.max(document.body.scrollHeight, window.innerHeight);
+        const size = mobile.current ? 56 : 80;
+        const tx = Math.max(20, Math.min(w - size - 20, r.left + r.width / 2 - size / 2));
+        const ty = Math.max(60, Math.min(docH - size - 60, r.top - size - 12));
+        task.current = { type: "go", target: { x: tx, y: ty } };
+        st.current = "walk";
+        startActiveRef.current();
+        showBubble(name ? `已带你去「${name}」，就是这里！` : "找到了，就在这里！", 4200);
+      }, 700);
+    });
   };
 
   // 主循环：idle 时 setInterval(300ms)，active 时 RAF(20fps)

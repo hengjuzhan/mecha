@@ -17,6 +17,14 @@ const mountIO = typeof IntersectionObserver !== "undefined"
     )
   : null;
 
+/* 搜索定位：强制挂载指定编号的卡片，即使它离屏未懒加载。只增不删（挂载后常驻）。 */
+const forced = new Set<string>();
+const forcedListeners = new Set<() => void>();
+export function forceMountCard(no: string) {
+  forced.add(no);
+  forcedListeners.forEach((fn) => fn());
+}
+
 export const LazyCard = memo(function LazyCard({
   link, sound, onContext,
 }: {
@@ -30,6 +38,7 @@ export const LazyCard = memo(function LazyCard({
   useEffect(() => {
     const el = ref.current;
     if (!el || !mountIO) { setShow(true); return; }
+    if (forced.has(link.no)) { setShow(true); return; }
     const rect = el.getBoundingClientRect();
     if (rect.top < window.innerHeight + 200 && rect.bottom > -200) {
       setShow(true);
@@ -37,11 +46,14 @@ export const LazyCard = memo(function LazyCard({
       (el as any)._mountCb = () => setShow(true);
       mountIO.observe(el);
     }
+    const onForced = () => { if (forced.has(link.no)) setShow(true); };
+    forcedListeners.add(onForced);
     return () => {
       mountIO!.unobserve(el);
       (el as any)._mountCb = null;
+      forcedListeners.delete(onForced);
     };
-  }, []);
+  }, [link.no]);
 
   return (
     <div ref={ref} className="min-h-0">
