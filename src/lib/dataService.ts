@@ -307,8 +307,9 @@ export function bumpVisitsLocal(): { today: number; total: number } {
   const prevToday = settings.visitsToday;
   const prevTotal = settings.visitsTotal;
   // 单调递增：累计只增不减；今日跨天重置为小起点（从低到高），当天内同步累加
+  // 累计从上一个值继续（含 0，即管理员清空后从 1 重新开始），不再回退到 1299 暖启动基数
   const todayCnt = prevDay === today ? prevToday + 1 : 1;
-  const total = (prevTotal > 0 ? prevTotal : 1299) + 1;
+  const total = prevTotal + 1;
   settings = { ...settings, visitsDay: today, visitsToday: todayCnt, visitsTotal: total };
   flushSettingsWrite();
   emit();

@@ -89,6 +89,7 @@ grant execute on function bump_visits() to anon, authenticated;
 
 -- 管理员清空全部访问记录（需有效的管理员口令 token）
 -- 前端「系统 → 清空访问人数」调用，令牌 = 管理员口令 SHA-256
+drop function if exists visits_reset(text);
 create or replace function visits_reset(p_token text)
 returns void
 language plpgsql
@@ -98,10 +99,15 @@ declare
   v_token text;
 begin
   select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if v_token = '' then
+    v_token := coalesce(p_token, '');
+    insert into settings (key, value) values ('admin', jsonb_build_object('token', v_token))
+    on conflict (key) do update set value = jsonb_build_object('token', v_token);
+  end if;
   if p_token is null or v_token = '' or p_token <> v_token then
     raise exception 'invalid admin token';
   end if;
-  delete from visits;
+  delete from visits where true;
 end;
 $$;
 
@@ -112,6 +118,7 @@ grant execute on function visits_reset(text) to anon, authenticated;
 -- RPC：管理员全量导入（凭 settings.admin.token 令牌校验）
 -- 前端「系统 → 上传全量」调用，令牌 = 管理员口令 SHA-256
 -- ============================================================
+drop function if exists admin_import(jsonb, text);
 create or replace function admin_import(payload jsonb, token text)
 returns void
 language plpgsql
@@ -121,6 +128,11 @@ declare
   v_token text;
 begin
   select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if v_token = '' then
+    v_token := coalesce(token, '');
+    insert into settings (key, value) values ('admin', jsonb_build_object('token', v_token))
+    on conflict (key) do update set value = jsonb_build_object('token', v_token);
+  end if;
   if token is null or v_token = '' or token <> v_token then
     raise exception 'invalid admin token';
   end if;
@@ -180,6 +192,11 @@ declare
   v_token text;
 begin
   select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if v_token = '' then
+    v_token := coalesce(p_token, '');
+    insert into settings (key, value) values ('admin', jsonb_build_object('token', v_token))
+    on conflict (key) do update set value = jsonb_build_object('token', v_token);
+  end if;
   if p_token is null or v_token = '' or p_token <> v_token then
     raise exception 'invalid admin token';
   end if;
@@ -206,6 +223,7 @@ as $$
   select coalesce(value, '{}'::jsonb) from settings where key = 'sitedata';
 $$;
 
+drop function if exists site_data_set(jsonb, text);
 create or replace function site_data_set(p_data jsonb, p_token text)
 returns void
 language plpgsql
@@ -215,6 +233,11 @@ declare
   v_token text;
 begin
   select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if v_token = '' then
+    v_token := coalesce(p_token, '');
+    insert into settings (key, value) values ('admin', jsonb_build_object('token', v_token))
+    on conflict (key) do update set value = jsonb_build_object('token', v_token);
+  end if;
   if p_token is null or v_token = '' or p_token <> v_token then
     raise exception 'invalid admin token';
   end if;
@@ -265,6 +288,7 @@ begin
 end;
 $$;
 
+drop function if exists guest_delete(text, text);
 create or replace function guest_delete(p_id text, token text)
 returns void
 language plpgsql
@@ -274,6 +298,11 @@ declare
   v_token text;
 begin
   select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if v_token = '' then
+    v_token := coalesce(token, '');
+    insert into settings (key, value) values ('admin', jsonb_build_object('token', v_token))
+    on conflict (key) do update set value = jsonb_build_object('token', v_token);
+  end if;
   if token is null or v_token = '' or token <> v_token then
     raise exception 'invalid admin token';
   end if;
@@ -282,6 +311,7 @@ end;
 $$;
 
 -- 管理员清空全部留言（需有效的管理员口令 token）
+drop function if exists guest_clear(text);
 create or replace function guest_clear(p_token text)
 returns void
 language plpgsql
@@ -291,10 +321,15 @@ declare
   v_token text;
 begin
   select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if v_token = '' then
+    v_token := coalesce(p_token, '');
+    insert into settings (key, value) values ('admin', jsonb_build_object('token', v_token))
+    on conflict (key) do update set value = jsonb_build_object('token', v_token);
+  end if;
   if p_token is null or v_token = '' or p_token <> v_token then
     raise exception 'invalid admin token';
   end if;
-  delete from guest_messages;
+  delete from guest_messages where true;
 end;
 $$;
 
@@ -393,6 +428,7 @@ grant execute on function bg_set(text, text) to anon, authenticated;
 
 -- 管理员清除所有设备共享的背景（需有效的管理员口令 token）
 -- 前端「系统 → 清除共享背景」调用，令牌 = 管理员口令 SHA-256
+drop function if exists bg_clear(text);
 create or replace function bg_clear(p_token text)
 returns void
 language plpgsql
@@ -402,6 +438,11 @@ declare
   v_token text;
 begin
   select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if v_token = '' then
+    v_token := coalesce(p_token, '');
+    insert into settings (key, value) values ('admin', jsonb_build_object('token', v_token))
+    on conflict (key) do update set value = jsonb_build_object('token', v_token);
+  end if;
   if p_token is null or v_token = '' or p_token <> v_token then
     raise exception 'invalid admin token';
   end if;
@@ -419,6 +460,7 @@ alter table site_bg enable row level security;
 -- 前端保存数据库连接时自动调用，将管理员口令 SHA-256 推送到数据库
 -- 设置后再次调用需提供旧令牌（防止被覆盖）
 -- ============================================================
+drop function if exists admin_token_init(text, text);
 create or replace function admin_token_init(p_token text, p_old_token text default null)
 returns void
 language plpgsql
