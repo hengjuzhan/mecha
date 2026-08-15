@@ -54,6 +54,8 @@
 
 html { scroll-behavior: smooth; background-color: var(--c-bg); }
 body { color: var(--c-text); font-family: var(--font-main); overflow-x: hidden; }
+/* 移动端：禁用双击/双指缩放，避免页面无操作时自行缩放，同时消除点击 300ms 延迟 */
+html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; overscroll-behavior-y: none; }
 /* 背景：径向柔光 + 细网格，纯 background-image 无重绘开销 */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;

@@ -469,10 +469,12 @@ class MusicEngine {
   stop() {
     this.wantPlay = false;
     this.audio.pause();
-    this.audio.removeAttribute("src");
+    // 不移除 src，保留已加载的音源。点击播放后可直接 resume 而非重新走 switchTo/loadUrl
+    // 脆弱链路（resolve → 30s 预览 → stall → next → LOAD 死循环）。
+    this.audio.currentTime = 0;
     this.stopProbe();
     this.stopStallMonitor();
-    this.setState({ playing: false, waiting: false, currentTime: 0, duration: 0 });
+    this.setState({ playing: false, waiting: false, currentTime: 0, duration: this.audio.duration || 0 });
   }
   next() { void this.switchTo(this.pickRandomIdx(this.state.trackIdx)); }
   prev() { void this.switchTo(this.pickRandomIdx(this.state.trackIdx)); }
