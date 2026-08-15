@@ -149,6 +149,7 @@ class MusicEngine {
   userActivated = false;
   private autoMuted = false; // 自动播放被拦截时静音兜底，首次交互(activate)后取消静音出声
   private wantPlay = false; // 用户期望播放：canplay 时据此自动补播，暂停后置 false，避免误自动播放
+  private stopped = false; // 已停止：下次播放/切歌强制重新加载，避开移动端 resume 流式音源失败
 
   private state: MusicState = {
     started: false, playing: false, waiting: false, trackIdx: 0,
@@ -161,20 +162,7 @@ class MusicEngine {
   constructor() {
     this.audio.preload = "none";
     this.audio.volume = this.state.volume;
-    this.audio.addEventListener("timeupdate", () => {
-      const t = this.audio.currentTime;
-      // 播放回退（切歌/seek 回退）时强制刷新，避免歌词与进度卡在旧句
-      if (t < this.state.currentTime - 0.15) {
-        let idx = 0;
-        for (let i = 0; i < this.state.lyric.length; i++) if (this.state.lyric[i].time <= t) idx = i;
-        this.setState({ currentTime: t, lyricIdx: idx });
-        return;
-      }
-      if (Math.abs(t - this.state.currentTime) < 0.15) return;
-      let idx = 0;
-      for (let i = 0; i < this.state.lyric.length; i++) if (this.state.lyric[i].time <= t) idx = i;
-      this.setState({ currentTime: t, lyricIdx: idx });
-    });
+    this.audio.addEventListener("timeupdate", () => this.syncPlayhead());
     this.audio.addEventListener("loadedmetadata", () => this.setState({ duration: this.audio.duration || 0 }));
     this.audio.addEventListener("play", () => this.setState({ playing: true }));
     this.audio.addEventListener("playing", () => this.setState({ playing: true })); // 实际开始出声时也校正
@@ -189,6 +177,7 @@ class MusicEngine {
     // 周期性对齐 playing 状态与真实 audio 播放状态：
     // 修复 play() 与 pause() 竞态（play 挂起时被 pause 打断 → 只触发 pause 不触发 play）导致
     // "明明有声音却显示未播放 / 不显示歌词" 的问题，从而避免检测器一直误弹窗。
+    // 同时高频同步播放进度与歌词索引（timeupdate 在移动端可能被节流，导致歌词切换不跟手）。
     window.setInterval(() => {
       const a = this.audio;
       // 用 readyState 而非 duration>0 判断：部分音源为流式播放（duration 为 NaN/Infinity），
@@ -206,6 +195,18 @@ class MusicEngine {
         try { void a.play().catch(() => {}); } catch { /* ignore */ }
       }
     }, 1000);
+    // 歌词行切换：独立高频同步（250ms），不受 timeupdate 节流影响，保证卡拉OK歌词跟手
+    window.setInterval(() => this.syncPlayhead(), 250);
+  }
+
+  /** 同步播放进度与歌词索引（当前行高亮），供 timeupdate 与高频定时器共用 */
+  private syncPlayhead() {
+    const t = this.audio.currentTime;
+    if (Math.abs(t - this.state.currentTime) < 0.15) return;
+    let idx = 0;
+    const L = this.state.lyric;
+    for (let i = 0; i < L.length; i++) if (L[i].time <= t) idx = i;
+    this.setState({ currentTime: t, lyricIdx: idx });
   }
 
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
@@ -401,6 +402,7 @@ class MusicEngine {
   /** 进站自动随机播放（尽量在进入就播；被浏览器拦截则首次交互时恢复播放） */
   async activate() {
     this.userActivated = true;
+    this.stopped = false;
     this.wantPlay = true;
     // 取消自动播放兜底的静音：首次交互即出声
     if (this.autoMuted) {
@@ -441,10 +443,21 @@ class MusicEngine {
 
   async toggle() {
     if (!this.state.started) { await this.activate(); return; }
-    if (!this.audio.src) { void this.switchTo(this.pickRandomIdx(this.state.trackIdx)); return; }
+    if (this.stopped || !this.audio.src) { void this.play(); return; }
     if (this.audio.paused) await this.play(); else this.pause();
   }
-  async play() { this.wantPlay = true; try { await this.audio.play(); } catch { /* ignore */ } }
+  async play() {
+    this.wantPlay = true;
+    if (this.stopped || !this.audio.src) {
+      // 停止后再播放：走干净的 switchTo 重新加载当前曲目。
+      // 移动端在"暂停 + seek(0)"后对已加载的流式音源 resume 常失败且无声，
+      // 重新加载是可靠链路（与进站首次播放一致），避免"停止后无法再播放/切歌"。
+      this.stopped = false;
+      void this.switchTo(this.state.trackIdx, true);
+      return;
+    }
+    try { await this.audio.play(); } catch { /* ignore */ }
+  }
   pause() { this.wantPlay = false; this.audio.pause(); }
   /** 供实时监测读取：访客当前是否期望播放（手动暂停后为 false） */
   getDesiredPlay(): boolean { return this.wantPlay; }
@@ -468,16 +481,16 @@ class MusicEngine {
   }
   stop() {
     this.wantPlay = false;
+    this.stopped = true; // 停止后下次播放强制重新加载，避开移动端 resume 流式音源失败
     this.audio.pause();
-    // 不移除 src，保留已加载的音源。点击播放后可直接 resume 而非重新走 switchTo/loadUrl
-    // 脆弱链路（resolve → 30s 预览 → stall → next → LOAD 死循环）。
-    this.audio.currentTime = 0;
+    // 保留已加载音源以支持立即恢复；但移动端 resume 不可靠，由 play() 走重新加载链路
+    try { this.audio.currentTime = 0; } catch { /* ignore */ }
     this.stopProbe();
     this.stopStallMonitor();
     this.setState({ playing: false, waiting: false, currentTime: 0, duration: this.audio.duration || 0 });
   }
-  next() { void this.switchTo(this.pickRandomIdx(this.state.trackIdx)); }
-  prev() { void this.switchTo(this.pickRandomIdx(this.state.trackIdx)); }
+  next() { this.stopped = false; void this.switchTo(this.pickRandomIdx(this.state.trackIdx)); }
+  prev() { this.stopped = false; void this.switchTo(this.pickRandomIdx(this.state.trackIdx)); }
   seek(t: number) { if (isFinite(this.audio.duration)) this.audio.currentTime = t; }
 
   /* ---- 播放卡顿监测：超过 5 秒无进度 → 自动切下一首 ---- */

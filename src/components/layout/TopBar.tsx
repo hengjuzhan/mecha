@@ -131,7 +131,7 @@ export function TopBar() {
                 type="search"
                 value={q}
                 placeholder="搜索站点 / 编号 L0001 / 公告 P0001 / 分类名 …"
-                className="h-9 w-full rounded-sm border-0 bg-transparent pl-8 pr-8 text-sm outline-none placeholder:text-[var(--c-dim)]"
+                className="h-9 w-full min-w-0 rounded-sm border-0 bg-transparent pl-8 pr-8 text-sm outline-none placeholder:text-[var(--c-dim)]"
                 style={{ border: "none", boxShadow: "none" }}
                 onChange={(e) => { setQ(e.target.value); setOpen(true); }}
                 onFocus={() => setOpen(true)}
@@ -196,16 +196,18 @@ export function TopBar() {
 
         {/* 时钟 + 统计 + GitHub */}
         <div className="hidden lg:block shrink-0"><Clock /></div>
-        <div className="hidden shrink-0 items-center gap-1.5 xl:flex">
-          <div className="panel2 relative px-2.5 py-1 text-center leading-tight">
-            {demo && <span className="absolute -top-1.5 right-1 num rounded-sm bg-[var(--c-orange)] px-1 text-[7px] text-black">DEMO</span>}
-            <div className="num text-[8px] tracking-widest text-[var(--c-dim)]">今日访问</div>
-            <div className="num text-sm font-bold text-[var(--c-cyan)]">{visits.today}</div>
+        <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+          <div className="panel2 relative px-1.5 py-1 text-center leading-tight lg:px-2.5">
+            {demo && <span className="absolute -top-1.5 right-1 num rounded-sm bg-[var(--c-orange)] px-1 text-[7px] text-black lg:hidden">DM</span>}
+            {demo && <span className="absolute -top-1.5 right-1 num hidden rounded-sm bg-[var(--c-orange)] px-1 text-[7px] text-black lg:block">DEMO</span>}
+            <div className="num whitespace-nowrap text-[7px] tracking-widest text-[var(--c-dim)] sm:text-[8px]">今日</div>
+            <div className="num whitespace-nowrap text-xs font-bold text-[var(--c-cyan)] sm:text-sm">{visits.today}</div>
           </div>
-          <div className="panel2 relative px-2.5 py-1 text-center leading-tight">
-            {demo && <span className="absolute -top-1.5 right-1 num rounded-sm bg-[var(--c-orange)] px-1 text-[7px] text-black">DEMO</span>}
-            <div className="num text-[8px] tracking-widest text-[var(--c-dim)]">累计访问</div>
-            <div className="num text-sm font-bold text-[var(--c-magenta)]">{visits.total}</div>
+          <div className="panel2 relative px-1.5 py-1 text-center leading-tight lg:px-2.5">
+            {demo && <span className="absolute -top-1.5 right-1 num rounded-sm bg-[var(--c-orange)] px-1 text-[7px] text-black lg:hidden">DM</span>}
+            {demo && <span className="absolute -top-1.5 right-1 num hidden rounded-sm bg-[var(--c-orange)] px-1 text-[7px] text-black lg:block">DEMO</span>}
+            <div className="num whitespace-nowrap text-[7px] tracking-widest text-[var(--c-dim)] sm:text-[8px]">累计</div>
+            <div className="num whitespace-nowrap text-xs font-bold text-[var(--c-magenta)] sm:text-sm">{visits.total}</div>
           </div>
         </div>
       </div>
