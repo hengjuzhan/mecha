@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * AI / 科技信息框：多分类(热点 / AI资讯 / 微博热搜 / 搜索趋势 / 开源趋势)，可在框内切换。
- * 数据全部来自用户 fork 到 GitHub 的开源项目，由各自的 GitHub Actions 定时抓取并提交静态文件：
- * 热点 → TrendRadar；AI资讯 → ai-news-daily；微博热搜 → weibo-daily-hot-search；
- * 搜索趋势 → trend-scraper(Google) ；开源趋势 → github-trending-scope(GitHub Trending)。
- * 数据缓存于 localStorage，网络失败时用本地兜底列表。
+ * 数据链路（5 个板块每 30 分钟自动刷新，也可点「立即更新」手动刷新）：
+ * 热点 → TrendRadar（GitHub Actions 每小时）；AI资讯 → ai-news-daily（每天 6 次）；
+ * 微博热搜 → 60s 公共 API 实时 → mecha-hot-api 缓存 → 旧 fork 兜底；
+ * 搜索趋势 → mecha-hot-api（Actions 每 30 分钟抓 Google Trends）→ 代理直拉 RSS → 旧 fork 兜底；
+ * 开源趋势 → GitHub Search API 实时 → github-trending-scope 兜底。
+ * mecha-hot-api 为自建非 fork 仓库：fork 的定时 Actions 会被 GitHub 自动禁用（disabled_fork），
+ * 自建仓库持续有 bot 提交则不会被停用。数据缓存于 localStorage，网络失败时用本地兜底列表。
  */
 interface TechItem { id: string; title: string; desc: string; url: string; meta: string }
 type TabKey = "hot" | "ai" | "weibo" | "google" | "ghtrend";
@@ -25,7 +28,7 @@ interface TabConf {
 }
 
 const LS_TECH = "mechanav.technews.v6";
-const UPDATE_MS = 15 * 60 * 1000; // 每 15 分钟自动更新
+const UPDATE_MS = 30 * 60 * 1000; // 5 个板块每 30 分钟自动更新
 
 const enc = (s: string) => encodeURIComponent(s);
 
@@ -300,9 +303,61 @@ async function fetchAirNews(): Promise<TechItem[] | null> {
   } catch { return null; }
 }
 
-/** weibo-daily-hot-search：微博热搜，raw/YYYY-MM-DD.json，每 5 分钟更新 */
+/** mecha-hot-api：自建非 fork 仓库，Actions 每 30 分钟抓微博热搜 / Google 趋势并提交 JSON。
+ *  （fork 仓库的定时 Actions 会被 GitHub 自动置为 disabled_fork 停摆，自建仓库不受影响） */
+const HOTAPI_REF: RepoRef = { owner: "hengjuzhan", repo: "mecha-hot-api", branch: "main" };
+
+/** 60s 公共 API（vikiboss/60s，Cloudflare 部署，CORS 全开）：微博热搜实时数据 */
+const API_60S_WEIBO = "https://60s.viki.moe/v2/weibo";
+
+interface HotApiFile { updated?: string; items?: { title?: string; hot?: number; traffic?: string; url?: string }[] }
+
+/** 解析 mecha-hot-api 的 data/*.json */
+function parseHotApi(text: string, kind: "weibo" | "google"): TechItem[] | null {
+  try {
+    const j = JSON.parse(text) as HotApiFile;
+    const list = Array.isArray(j.items) ? j.items : [];
+    const out = list.slice(0, 25).map((it, i) => ({
+      id: `${kind}${i}${it.title || ""}`,
+      title: it.title || "",
+      desc: kind === "weibo" ? `热度 ${(it.hot || 0).toLocaleString()}` : `搜索量 ${it.traffic || "—"}`,
+      url: it.url || "",
+      meta: kind === "weibo" ? "微博" : "趋势",
+    })).filter((x: TechItem) => x.title);
+    return out.length ? out : null;
+  } catch { return null; }
+}
+
+/** 旧 fork 仓库（Actions 已停摆，仅作最后兜底）：微博 raw/YYYY-MM-DD.json */
 const WEIBO_REF: RepoRef = { owner: "hengjuzhan", repo: "weibo-daily-hot-search", branch: "master" };
+
+/** 微博热搜：60s 公共 API 实时 → mecha-hot-api 缓存 → 旧 fork 仓库文件 */
 async function fetchWeibo(): Promise<TechItem[] | null> {
+  // 1. 60s 公共 API 直连（CORS=*，实时最新）
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10000);
+    let res: Response;
+    try { res = await fetch(API_60S_WEIBO, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+    if (res.ok) {
+      const j = await res.json() as { data?: { title?: string; hot_value?: number; link?: string }[] };
+      const list = (j.data || []).slice(0, 25).map((it, i) => ({
+        id: `wb${i}${it.title || ""}`,
+        title: it.title || "",
+        desc: `热度 ${(it.hot_value || 0).toLocaleString()}`,
+        url: it.link || "",
+        meta: "微博",
+      })).filter((x: TechItem) => x.title);
+      if (list.length) return list;
+    }
+  } catch { /* 走回退 */ }
+  // 2. mecha-hot-api 缓存（Actions 每 30 分钟更新）
+  const viaRepo = await ghRaw(HOTAPI_REF, "data/weibo.json");
+  if (viaRepo) {
+    const items = parseHotApi(viaRepo, "weibo");
+    if (items) return items;
+  }
+  // 3. 旧 fork 仓库（Actions 已停摆，仅作最后兜底）
   const file = await pickLatest(WEIBO_REF, "raw", /^\d{4}-\d{2}-\d{2}\.json$/);
   if (!file) return null;
   const text = await ghRaw(WEIBO_REF, `raw/${enc(file)}`);
@@ -320,9 +375,11 @@ async function fetchWeibo(): Promise<TechItem[] | null> {
   } catch { return null; }
 }
 
-/** trend-scraper：Google 热搜关键词，data/google-trends.json，Actions 每 30 分钟更新。
- *  拉取链路：ghRaw 已内置 jsDelivr CDN（大陆直连）→ GitHub Contents API → raw/代理 多层回退。 */
+/** 旧 fork 仓库（Actions 已停摆，仅作最后兜底）：trend-scraper 的 data/google-trends.json */
 const GOOGLE_REF: RepoRef = { owner: "hengjuzhan", repo: "trend-scraper", branch: "main" };
+const GOOGLE_RSS = "https://trends.google.com/trending/rss?geo=US";
+
+/** trend-scraper 旧格式：{trends:[{googleTrend, searchVolume, started}]} */
 function parseGoogleTrends(text: string): TechItem[] {
   try {
     const j = JSON.parse(text);
@@ -336,17 +393,45 @@ function parseGoogleTrends(text: string): TechItem[] {
     })).filter((x: TechItem) => x.title);
   } catch { return []; }
 }
+
+/** Google Trends RSS（经 CORS 代理拉到的 XML）→ 条目列表 */
+function parseGoogleRss(xml: string): TechItem[] {
+  try {
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+    const nodes = Array.from(doc.querySelectorAll("item")).slice(0, 20);
+    return nodes.map((el, i) => {
+      const title = el.querySelector("title")?.textContent?.trim() || "";
+      const traffic = el.getElementsByTagName("ht:approx_traffic")[0]?.textContent?.trim() || "";
+      const link = el.querySelector("link")?.nextSibling?.textContent?.trim() || "";
+      return {
+        id: `gr${i}${title}`,
+        title,
+        desc: `搜索量 ${traffic || "—"}`,
+        url: link || (title ? `https://www.google.com/search?q=${encodeURIComponent(title)}` : ""),
+        meta: "趋势",
+      };
+    }).filter((x: TechItem) => x.title);
+  } catch { return []; }
+}
+
+/** 搜索趋势（Google Trends）：mecha-hot-api 缓存 → 浏览器经代理直拉 RSS → 旧 fork 文件 */
 async function fetchGoogle(): Promise<TechItem[] | null> {
-  // 主路径：jsDelivr CDN / raw 直连 / 代理（ghRaw 内置多层回退）
-  const text = await ghRaw(GOOGLE_REF, "data/google-trends.json");
+  // 1. mecha-hot-api 的 data/google.json（Actions 每 30 分钟服务端抓取，无 CORS 问题）
+  const text = await ghRaw(HOTAPI_REF, "data/google.json");
   if (text) {
-    const items = parseGoogleTrends(text);
+    const items = parseHotApi(text, "google");
+    if (items) return items;
+  }
+  // 2. 浏览器经 CORS 代理直接拉 Google Trends RSS（代理不稳定，尽力而为）
+  const xml = await fetchRaw(GOOGLE_RSS, 10000);
+  if (xml && xml.includes("<item>")) {
+    const items = parseGoogleRss(xml);
     if (items.length) return items;
   }
-  // 回退：GitHub Contents API（有 CORS 头，正确处理 UTF-8）
-  const viaApi = await ghContent(GOOGLE_REF, "data/google-trends.json");
-  if (viaApi) {
-    const items = parseGoogleTrends(viaApi);
+  // 3. 旧 fork 仓库文件（数据停更前最后一份）
+  const old = await ghRaw(GOOGLE_REF, "data/google-trends.json");
+  if (old) {
+    const items = parseGoogleTrends(old);
     if (items.length) return items;
   }
   return null;
@@ -440,19 +525,19 @@ const TABS: TabConf[] = [
     ],
   },
   {
-    key: "weibo", label: "微博热搜", icon: "💬", kind: "weibo", ref: WEIBO_REF, dir: "raw",
+    key: "weibo", label: "微博热搜", icon: "💬", kind: "weibo", ref: HOTAPI_REF, file: "data/weibo.json",
     fallback: [
-      { id: "w1", title: "微博热搜同步中…", desc: "weibo-daily-hot-search 每 5 分钟抓取一次", url: "", meta: "微博" },
-      { id: "w2", title: "等待首次抓取", desc: "可在 GitHub Actions 中手动触发", url: "", meta: "微博" },
-      { id: "w3", title: "数据暂未同步", desc: "首次抓取完成后自动填充", url: "", meta: "微博" },
+      { id: "w1", title: "微博热搜实时同步中…", desc: "60s 公共 API 实时拉取，每 30 分钟自动刷新", url: "", meta: "微博" },
+      { id: "w2", title: "数据加载中…", desc: "首次拉取或网络异常时显示此列表", url: "", meta: "微博" },
+      { id: "w3", title: "若持续显示此列表", desc: "请检查浏览器网络后点右下角立即更新", url: "", meta: "微博" },
     ],
   },
   {
-    key: "google", label: "搜索趋势", icon: "⚡", kind: "google", ref: GOOGLE_REF, file: "data/google-trends.json",
+    key: "google", label: "搜索趋势", icon: "⚡", kind: "google", ref: HOTAPI_REF, file: "data/google.json",
     fallback: [
-      { id: "g1", title: "Google 每日热搜", desc: "GitHub Actions 每 30 分钟抓取，前端经 GitHub API 拉取", url: "", meta: "趋势" },
+      { id: "g1", title: "Google 搜索趋势", desc: "mecha-hot-api 每 30 分钟抓取 Google Trends 并同步到此", url: "", meta: "趋势" },
       { id: "g2", title: "数据加载中…", desc: "首次拉取或网络异常时显示此列表", url: "", meta: "趋势" },
-      { id: "g3", title: "若持续显示此列表", desc: "请检查浏览器网络或 Supabase 配置", url: "", meta: "趋势" },
+      { id: "g3", title: "若持续显示此列表", desc: "请检查浏览器网络后点右下角立即更新", url: "", meta: "趋势" },
     ],
   },
   {
@@ -549,9 +634,15 @@ export function TechNewsBoard() {
   }, []);
 
   useEffect(() => {
-    const iv = window.setInterval(() => void loadTab(active), UPDATE_MS);
+    // 5 个板块每 30 分钟全部自动刷新（错开 400ms 避免并发请求过多）
+    const iv = window.setInterval(() => {
+      TABS.forEach((tb, i) => {
+        window.setTimeout(() => void loadTab(tb.key, true), i * 400);
+      });
+    }, UPDATE_MS);
     return () => window.clearInterval(iv);
-  }, [active]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const cur = items[active] || TABS.find((c) => c.key === active)!.fallback;
   const isFetching = fetching[active];
