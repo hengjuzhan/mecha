@@ -83,7 +83,9 @@ export function MoodPanel() {
     }
   }, [pickLocal]);
 
-  const fetchImg = useCallback(async () => {
+  /** start：本次尝试的起始来源下标。常规刷新固定从 0（表情包优先，瞬时失败可自愈），
+   *  仅 <img> 加载失败的 onError 重试时才跳过刚失败的来源 */
+  const fetchImg = useCallback(async (start = 0) => {
     setImgFail(false);
     setImg("");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,7 +107,7 @@ export function MoodPanel() {
       async () => `https://picsum.photos/1200/800?r=${Math.random()}`,
     ];
     for (let i = 0; i < sources.length; i++) {
-      const idx = (imgSrc.current + i) % sources.length;
+      const idx = (start + i) % sources.length;
       try {
         const url = await sources[idx]();
         if (!url) continue;
@@ -174,8 +176,7 @@ export function MoodPanel() {
               onError={() => {
                 imgAtt.current += 1;
                 if (imgAtt.current >= 3) { setImgFail(true); return; }
-                imgSrc.current = (imgSrc.current + 1) % 4;
-                void fetchImg();
+                void fetchImg(imgSrc.current + 1);
               }}
             />
           )}
