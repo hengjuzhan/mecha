@@ -147,6 +147,30 @@ export async function deleteGuestMessage(id: string): Promise<boolean> {
   return true;
 }
 
+/** 管理员清空全部留言（数据库模式需口令 hash 作为 token） */
+export async function clearGuestbook(): Promise<boolean> {
+  const c = cfg();
+  if (c) {
+    try {
+      const r = await fetch(
+        `${c.url.replace(/\/$/, "")}/rest/v1/rpc/guest_clear`,
+        { method: "POST", headers: { apikey: c.key, Authorization: `Bearer ${c.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ token: getAdminHash() }) },
+      );
+      if (!r.ok) throw new Error(String(r.status));
+      list = [];
+      setBackend(true);
+      emit();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  list = [];
+  persist();
+  emit();
+  return true;
+}
+
 export const guestbookStats = () => {
   const day = new Date();
   day.setHours(0, 0, 0, 0);

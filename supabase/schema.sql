@@ -189,12 +189,31 @@ begin
 end;
 $$;
 
+-- 管理员清空全部留言（需有效的管理员口令 token）
+create or replace function guest_clear(p_token text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_token text;
+begin
+  select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if p_token is null or v_token = '' or p_token <> v_token then
+    raise exception 'invalid admin token';
+  end if;
+  delete from guest_messages;
+end;
+$$;
+
 revoke all on function guest_list() from public;
 revoke all on function guest_add(text, text, text) from public;
 revoke all on function guest_delete(text, text) from public;
+revoke all on function guest_clear(text) from public;
 grant execute on function guest_list() to anon, authenticated;
 grant execute on function guest_add(text, text, text) to anon, authenticated;
 grant execute on function guest_delete(text, text) to anon, authenticated;
+grant execute on function guest_clear(text) to anon, authenticated;
 
 alter table guest_messages enable row level security;
 

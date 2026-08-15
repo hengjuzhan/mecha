@@ -9,6 +9,7 @@ import { setupAdmin, verifyAdmin } from "./AdminLogin";
 import { toast } from "../widgets/Toast";
 import { Corners } from "../widgets/Modal";
 import { RangeInput } from "../ui/RangeInput";
+import { clearGuestbook, getGuestbook, isGuestbookBackend } from "../../lib/guestbook";
 
 const inp = "h-8 w-full min-w-0 rounded-sm border border-[var(--c-border)] bg-[color-mix(in_srgb,var(--c-bg)_55%,var(--c-panel2))] px-2 text-xs";
 
@@ -320,6 +321,13 @@ export function SystemSection() {
   const [dbKey, setDbKey] = useState(s.supabase?.key ?? "");
   const [testing, setTesting] = useState(false);
 
+  const clearAllGuestbook = async () => {
+    const n = getGuestbook().length;
+    if (!window.confirm(n > 0 ? `确定清空全部 ${n} 条留言吗？此操作不可恢复。` : "留言板已经是空的，确定要清空吗？")) return;
+    const ok = await clearGuestbook();
+    toast(ok ? "已清空全部留言" : "清空失败，请重试", ok ? "ok" : "warn");
+  };
+
   const changePw = async () => {
     if (newPw.length < 6) { toast("新口令至少 6 位", "warn"); return; }
     if (newPw !== newPw2) { toast("两次口令不一致", "warn"); return; }
@@ -382,6 +390,16 @@ export function SystemSection() {
         <p className="mt-2 text-[10px] leading-relaxed text-[var(--c-dim)]">
           用于访问计数与背景上传配额。需先在 Supabase SQL Editor 执行 schema.sql 初始化数据库；匿名可调用 RPC。
         </p>
+      </div>
+
+      <div className="mt-3 rounded-sm border border-[var(--c-border)] p-3">
+        <h3 className="num mb-2 text-xs tracking-[0.25em] text-[var(--c-orange)]">留言板管理</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={clearAllGuestbook}>🗑 清空全部留言</button>
+          <span className="text-[10px] text-[var(--c-dim)]">
+            当前共 {getGuestbook().length} 条留言 · {isGuestbookBackend() ? "数据库模式（清空即时生效）" : "本地模式"}
+          </span>
+        </div>
       </div>
 
       <div className="mt-3 rounded-sm border border-[var(--c-border)] p-3">
