@@ -147,6 +147,7 @@ class MusicEngine {
   private recentIds: number[] = []; // 最近播放过的曲目 idx，避免短时重复
   private prewarm: { idx: number; url: string; title: string; artist: string; netId?: string; srcId: string } | null = null; // 预热缓存：切歌秒开
   userActivated = false;
+  private autoMuted = false; // 自动播放被拦截时静音兜底，首次交互(activate)后取消静音出声
   private wantPlay = false; // 用户期望播放：canplay 时据此自动补播，暂停后置 false，避免误自动播放
 
   private state: MusicState = {
@@ -195,6 +196,14 @@ class MusicEngine {
       const actuallyPlaying = !!a.src && !a.paused && !a.ended && a.readyState >= 2;
       if (!this.state.waiting && this.state.playing !== actuallyPlaying) {
         this.setState({ playing: actuallyPlaying });
+      }
+      // 自动播放兜底：进站后音源已就绪却仍未在播、且用户尚未交互（autoplay 被政策拦截）→
+      // 静音启动，保证"一进入就播放"；首次交互 activate() 时取消静音出声。
+      if (!this.userActivated && this.state.started && this.wantPlay
+        && !actuallyPlaying && a.src && !this.autoMuted) {
+        this.autoMuted = true;
+        a.muted = true;
+        try { void a.play().catch(() => {}); } catch { /* ignore */ }
       }
     }, 1000);
   }
@@ -296,7 +305,6 @@ class MusicEngine {
       // 防御：预热曲目时长过低 → 立即跳过切下一首
       const pdur = this.audio.duration;
       if (!isFinite(pdur) || pdur < MIN_SONG_DURATION) {
-        toastMsg(`「${pw.title}」时长过短，自动跳过`, "warn");
         try { this.audio.removeAttribute("src"); } catch { /* ignore */ }
         window.setTimeout(() => { if (token === this.token) this.next(); }, 60);
         return;
@@ -348,7 +356,6 @@ class MusicEngine {
     // 验证歌曲时长：≤30 秒视为非歌曲/预热片段，立即跳过切下一首，不再逐个音源重试同一首
     const dur = this.audio.duration;
     if (!isFinite(dur) || dur < MIN_SONG_DURATION) {
-      toastMsg(`「${res.title}」时长过短（${isFinite(dur) ? dur.toFixed(1) : "—"}秒），自动跳过`, "warn");
       try { this.audio.removeAttribute("src"); } catch { /* ignore */ }
       window.setTimeout(() => { if (token === this.token) this.next(); }, 60);
       return true; // 终止当前 switchTo 的逐源重试
@@ -395,6 +402,11 @@ class MusicEngine {
   async activate() {
     this.userActivated = true;
     this.wantPlay = true;
+    // 取消自动播放兜底的静音：首次交互即出声
+    if (this.autoMuted) {
+      this.autoMuted = false;
+      this.audio.muted = false;
+    }
     // 音源已加载（autoplay 被拦截）但未播放 → 借首次交互的浏览器手势恢复播放
     if (this.audio.src && this.audio.paused) {
       await this.playWait();
