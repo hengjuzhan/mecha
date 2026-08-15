@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getSettings, isBackendOk, setBackendOk, searchAll, setSettings, useStore, bumpVisitsLocal, type SearchHit } from "../../lib/dataService";
+import { searchAll, useStore, type SearchHit } from "../../lib/dataService";
 import type { Announcement, Category, LinkItem } from "../../data/types";
-import { isSupabaseConfigured, bumpVisits } from "../../lib/supabase";
-import { extSearchURL, todayStr } from "../../lib/utils";
+import { cloud } from "../../lib/cloud";
+import { extSearchURL } from "../../lib/utils";
 import { locateHit } from "../../lib/locate";
 import { Clock } from "../widgets/Clock";
 
@@ -44,58 +44,34 @@ export function TopBar() {
 
   const hits = useMemo(() => (scope === "site" ? searchAll(q) : []), [q, scope]);
 
-  // 访问统计（本地演示 / Supabase）
-  const [visits, setVisits] = useState(() => {
-    const s = getSettings();
-    return { today: s.visitsToday, total: s.visitsTotal };
-  });
-  const [demo, setDemo] = useState(() => !isBackendOk());
-  // 管理员清空访问人数时，顶栏计数即时归零（随机累加计时器随后从 0 重新开始）
+  // 访问统计：云端权威（visits_bump），云端不可用自动回退本地计数；首帧先显示本地缓存避免跳变
+  const [visits, setVisits] = useState(() => cloud.visits.cached());
+  const [demo, setDemo] = useState(false);
   useEffect(() => {
-    const onReset = () => setVisits({ today: 0, total: 0 });
-    window.addEventListener("mecha:visits-reset", onReset);
-    return () => window.removeEventListener("mecha:visits-reset", onReset);
-  }, []);
-  useEffect(() => {
-    setVisits(bumpVisitsLocal()); // 按天去重，副作用在 effect 中执行
-    const cfg = getSettings().supabase;
-    if (isSupabaseConfigured(cfg)) {
-      void bumpVisits(cfg).then((r) => {
-        if (r) {
-          setBackendOk(true); setDemo(false);
-          // 后端统计只向上取 max，避免显示回落（忽高忽低）
-          setVisits((v) => ({ today: Math.max(v.today, r.today), total: Math.max(v.total, r.total) }));
-        }
-      });
-    }
-  }, []);
-
-  // 顶部人数：随机间隔（约 0.5~2.5 分钟）+ 随机人数（每次 +1~+4），单调不减，
-  // 并持久化到设置，刷新后从上次值继续递增（不回退）
-  // 跨天时仅重置今日访客，累计访客保持单调递增、绝不清零
-  const dayRef = useRef(todayStr());
-  useEffect(() => {
+    let alive = true;
+    const apply = (r: { today: number; total: number; online: boolean }) => {
+      if (!alive) return;
+      setDemo(!r.online);
+      // 显示单调不减（避免多标签页/竞态回落）；管理员清空事件单独归零
+      setVisits((v) => ({ today: Math.max(v.today, r.today), total: Math.max(v.total, r.total) }));
+    };
+    // 进入页面计数 +1（真实访问）
+    void cloud.visits.bump(1).then(apply);
+    // 氛围增量：随机间隔（30s~2.5min）随机人数（+1~4），与云端同步累加
     let timer = 0;
     const tick = () => {
-      const day = todayStr();
-      const crossDay = day !== dayRef.current;
-      dayRef.current = day;
-      setVisits((v) => {
-        const inc = 1 + Math.floor(Math.random() * 4); // 每次随机增加 1~4 人
-        // 今日访客：跨天重置为 1（从新的一天开始），同日则累加；累计访客：始终 +inc 单调递增
-        const next = {
-          today: crossDay ? inc : v.today + inc,
-          total: v.total + inc,
-        };
-        // 持久化到设置，刷新后从上次值继续递增，不回退
-        setSettings({ visitsToday: next.today, visitsTotal: next.total, visitsDay: day });
-        return next;
-      });
-      // 下一次触发间隔随机：30s ~ 150s（约 0.5~2.5 分钟）
+      void cloud.visits.bump(1 + Math.floor(Math.random() * 4)).then(apply);
       timer = window.setTimeout(tick, 30000 + Math.floor(Math.random() * 120000));
     };
     timer = window.setTimeout(tick, 30000 + Math.floor(Math.random() * 120000));
-    return () => window.clearTimeout(timer);
+    // 管理员清空访问人数时，顶栏计数即时归零（随后从 1 重新开始）
+    const onReset = () => setVisits({ today: 0, total: 0 });
+    window.addEventListener("mecha:visits-reset", onReset);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      window.removeEventListener("mecha:visits-reset", onReset);
+    };
   }, []);
 
   const submit = () => {

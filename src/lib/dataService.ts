@@ -2,8 +2,8 @@ import { useSyncExternalStore } from "react";
 import { DEFAULT_CATEGORIES, DEFAULT_LINKS, DEFAULT_ANNOUNCEMENTS, DEFAULT_PROMOS, DEFAULT_MUSIC_SOURCES } from "../data/navData";
 import { DEFAULT_TEXTS } from "../data/texts";
 import type { Announcement, Category, LinkItem, MusicSource, Overlay, Promo, Settings } from "../data/types";
-import { fuzzyScore, todayStr, uid } from "./utils";
-import { isSupabaseConfigured, visitsReset, textsGet, textsSet, siteDataGet, siteDataSet } from "./supabase";
+import { fuzzyScore, uid } from "./utils";
+import { cloud } from "./cloud";
 import { getAdminHash, isAdminSession } from "../components/admin/AdminLogin";
 import { toast } from "../components/widgets/Toast";
 
@@ -63,13 +63,12 @@ function loadJSON<T>(key: string, fallback: T): T {
 
 let overlay: Overlay = loadJSON<Overlay>(LS_OVERLAY, {});
 let settings: Settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...loadJSON<Partial<Settings>>(LS_SET, {}) });
-let backendOk = false;
-export const isBackendOk = () => backendOk;
-export const setBackendOk = (v: boolean) => { backendOk = v; };
 
 // 合并设置时，localStorage 中为 null 的 supabase 视为未配置，回退到内置默认连接
 function normalizeSettings(s: Settings): Settings {
-  if (!isSupabaseConfigured(s.supabase)) {
+  const c = s.supabase;
+  const ok = !!c && !!c.url && c.url.startsWith("http") && !!c.key;
+  if (!ok) {
     s = { ...s, supabase: DEFAULT_SETTINGS.supabase };
   }
   return s;
@@ -174,19 +173,17 @@ function pushTextsToCloud() {
   }, 500);
 }
 async function doPushTexts() {
-  const cfg = getSettings().supabase;
-  if (!isSupabaseConfigured(cfg) || !isAdminSession()) return;
+  if (!isAdminSession()) return;
   const token = getAdminHash();
   if (!token) return;
-  const ok = await textsSet(cfg, state.texts, token);
+  const ok = await cloud.texts.set(state.texts, token);
   if (!ok) toast("文案云端同步失败，请检查管理员登录与数据库配置", "warn");
 }
 
 /** 进入站点时从云端拉取文案覆盖层（云端为跨设备权威源，覆盖本地旧值）；云端为空且已登录管理员时自动把本地文案推送上云 */
 export async function syncTextsFromCloud(): Promise<void> {
-  const cfg = getSettings().supabase;
-  if (!isSupabaseConfigured(cfg)) return;
-  const db = await textsGet(cfg);
+  if (!cloud.configured()) return;
+  const db = await cloud.texts.get();
   if (db && Object.keys(db).length > 0) {
     state = { ...state, texts: { ...db } };
     textsEmit(); emit();
@@ -205,11 +202,10 @@ function pushSiteDataToCloud(notify = false) {
   }, 800);
 }
 async function doPushSiteData(notify = false) {
-  const cfg = getSettings().supabase;
-  if (!isSupabaseConfigured(cfg) || !isAdminSession()) return;
+  if (!isAdminSession()) return;
   const token = getAdminHash();
   if (!token) return;
-  const ok = await siteDataSet(cfg, {
+  const ok = await cloud.siteData.set({
     categories: state.categories,
     links: state.links,
     announcements: state.announcements,
@@ -222,9 +218,8 @@ async function doPushSiteData(notify = false) {
 
 /** 进入站点时从云端拉取全站数据（云端为跨设备权威源，覆盖本地旧值）；云端为空且已登录管理员时自动把本地全量推送上云 */
 export async function syncSiteDataFromCloud(): Promise<void> {
-  const cfg = getSettings().supabase;
-  if (!isSupabaseConfigured(cfg)) return;
-  const db = await siteDataGet(cfg);
+  if (!cloud.configured()) return;
+  const db = await cloud.siteData.get();
   const cats = db && Array.isArray(db.categories) ? (db.categories as Category[]) : null;
   const lks = db && Array.isArray(db.links) ? (db.links as LinkItem[]) : null;
   const anns = db && Array.isArray(db.announcements) ? (db.announcements as Announcement[]) : null;
@@ -305,37 +300,6 @@ export function importJSON(obj: unknown): boolean {
     if (d.texts) pushTextsToCloud();
   }
   return true;
-}
-
-/** 本地演示访问计数（localStorage 按天去重），接后端后由 bump_visits 覆盖 */
-export function bumpVisitsLocal(): { today: number; total: number } {
-  const today = todayStr();
-  const prevDay = settings.visitsDay;
-  const prevToday = settings.visitsToday;
-  const prevTotal = settings.visitsTotal;
-  // 单调递增：累计只增不减；今日跨天重置为小起点（从低到高），当天内同步累加
-  // 累计从上一个值继续（含 0，即管理员清空后从 1 重新开始），不再回退到 1299 暖启动基数
-  const todayCnt = prevDay === today ? prevToday + 1 : 1;
-  const total = prevTotal + 1;
-  settings = { ...settings, visitsDay: today, visitsToday: todayCnt, visitsTotal: total };
-  flushSettingsWrite();
-  emit();
-  return { today: todayCnt, total };
-}
-
-/**
- * 管理员清空访问人数：本地计数归零并持久化，同时触发顶栏即时清空；
- * 若配置了 Supabase 则同步清空云端访问记录（凭管理员令牌校验）。
- * 返回是否成功（仅云端调用失败时返回 false，本地清空始终生效）。
- */
-export async function resetVisits(): Promise<boolean> {
-  setSettings({ visitsToday: 0, visitsTotal: 0, visitsDay: todayStr() });
-  window.dispatchEvent(new CustomEvent("mecha:visits-reset"));
-  const cfg = getSettings().supabase;
-  if (!isSupabaseConfigured(cfg)) return true;
-  const token = getAdminHash();
-  if (!token) return false;
-  return await visitsReset(cfg, token);
 }
 
 /* ---------- 全站搜索：站点名 / 编号 L0001 / 分类 / 公告 P0001 ---------- */

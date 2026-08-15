@@ -16,7 +16,7 @@ import { Corners } from "./components/widgets/Modal";
 import { getSettings, setSettings, setTexts, stats, syncTextsFromCloud, syncSiteDataFromCloud, t, useSettings, useStore } from "./lib/dataService";
 import { isAdminSession } from "./components/admin/AdminLogin";
 import { music, sfx } from "./lib/audio";
-import { bgGetAsync } from "./lib/bgQuota";
+import { cloud } from "./lib/cloud";
 import type { Promo } from "./data/types";
 
 function useHashRoute() {
@@ -56,7 +56,7 @@ function GlobalEffects() {
     void syncTextsFromCloud();
     void syncSiteDataFromCloud();
     // 拉取云端共享背景（RightRail 也会拉，但这里保证首帧就应用，避免闪烁）
-    void bgGetAsync().then((r) => {
+    void cloud.bg.get().then((r) => {
       if (r && r.bgImage) setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
     });
   }, []);

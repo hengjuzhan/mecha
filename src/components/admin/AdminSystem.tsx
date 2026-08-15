@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  getSettings, setSettings, setMusicSources, useSettings, useStore, exportJSON, importJSON, resetOverlay, resetVisits,
+  getSettings, setSettings, setMusicSources, useSettings, useStore, exportJSON, importJSON, resetOverlay,
 } from "../../lib/dataService";
 import { downloadJSON } from "../../lib/utils";
-import { isSupabaseConfigured, adminTokenInit } from "../../lib/supabase";
-import { bgClearAsync } from "../../lib/bgQuota";
+import { cloud } from "../../lib/cloud";
 import { music } from "../../lib/audio";
 import type { Settings } from "../../data/types";
 import { setupAdmin, verifyAdmin, getAdminHash } from "./AdminLogin";
@@ -224,7 +223,7 @@ export function AppearanceSection() {
               <button type="button" className="btn-mech h-8 px-3 text-xs" onClick={() => fileRef.current?.click()}>⬆ 上传背景图</button>
               {s.bgImage && <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={async () => {
                 setSettings({ bgImage: "", bgTone: "dark" });
-                const ok = await bgClearAsync();
+                const ok = await cloud.bg.clear(getAdminHash());
                 toast(ok ? "已清除所有设备共享背景" : "本地已清除，云端同步失败", ok ? "ok" : "warn");
               }}>✕ 清除背景</button>}
             </div>
@@ -336,14 +335,14 @@ export function SystemSection() {
 
   const clearVisits = async () => {
     if (!window.confirm("确定清空全部访问人数吗？今日与累计访问计数将归零，此操作不可恢复。")) return;
-    const ok = await resetVisits();
+    const ok = await cloud.visits.reset(getAdminHash());
     toast(ok ? "已清空访问人数" : "本地已清空，但云端同步失败，请重试", ok ? "ok" : "warn");
   };
 
   const clearSharedBg = async () => {
     if (!window.confirm("确定清除所有设备共享的自定义背景吗？包括云端记录，此操作不可恢复。")) return;
     setSettings({ bgImage: "", bgTone: "dark" });
-    const ok = await bgClearAsync();
+    const ok = await cloud.bg.clear(getAdminHash());
     toast(ok ? "已清除共享背景" : "本地已清除，但云端同步失败，请重试", ok ? "ok" : "warn");
   };
 
@@ -355,9 +354,8 @@ export function SystemSection() {
     await setupAdmin(newPw);
     const newHash = getAdminHash();
     // 同步新令牌到数据库
-    const s = getSettings();
-    if (isSupabaseConfigured(s.supabase) && newHash) {
-      void adminTokenInit(s.supabase, newHash, oldHash).then((ok) => {
+    if (cloud.configured() && newHash) {
+      void cloud.initToken(newHash, oldHash).then((ok) => {
         if (ok) toast("口令已更新（SHA-256 存储）", "ok");
         else toast("口令已更新，但云端同步失败", "warn");
       });
@@ -374,10 +372,10 @@ export function SystemSection() {
     if (!/^https?:\/\//i.test(url)) { toast("URL 需以 http(s):// 开头", "warn"); return; }
     setSettings({ supabase: { url, key } });
     window.dispatchEvent(new CustomEvent("mecha:guestbook-backend", { detail: { on: true } }));
-    // 同步管理员令牌到数据库，确保云端 RPC（bg_clear / visits_reset / texts_set 等）能通过令牌校验
+    // 同步管理员令牌到数据库，确保云端 RPC（bg_clear / visits_reset / site_data_set 等）能通过令牌校验
     const token = getAdminHash();
     if (token) {
-      void adminTokenInit({ url, key }, token).then((ok) => {
+      void cloud.initToken(token).then((ok) => {
         if (ok) console.log("[mecha] admin token synced to database");
       });
     }
@@ -390,7 +388,7 @@ export function SystemSection() {
     if (!url || !key) { toast("请先填写 URL 与 Key", "warn"); return; }
     setTesting(true);
     try {
-      const res = await fetch(`${url}/rest/v1/rpc/bump_visits`, {
+      const res = await fetch(`${url}/rest/v1/rpc/visits_get`, {
         method: "POST",
         headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: "{}",
@@ -444,7 +442,7 @@ export function SystemSection() {
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={() => void clearVisits()}>🗑 清空访问人数</button>
           <span className="text-[10px] text-[var(--c-dim)]">
-            今日与累计计数归零{isSupabaseConfigured(s.supabase) ? " · 云端记录同步清空" : " · 本地模式"}
+            今日与累计计数归零{cloud.configured() ? " · 云端记录同步清空" : " · 本地模式"}
           </span>
         </div>
       </div>
@@ -454,7 +452,7 @@ export function SystemSection() {
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={() => void clearSharedBg()}>🗑 清除共享背景</button>
           <span className="text-[10px] text-[var(--c-dim)]">
-            清除所有设备共享的自定义背景{isSupabaseConfigured(s.supabase) ? " · 云端记录同步清空" : " · 本地模式"}
+            清除所有设备共享的自定义背景{cloud.configured() ? " · 云端记录同步清空" : " · 本地模式"}
           </span>
         </div>
       </div>

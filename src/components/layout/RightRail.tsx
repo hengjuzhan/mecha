@@ -4,10 +4,9 @@ import { dateSeed, mulberry } from "../../lib/utils";
 import { Modal } from "../widgets/Modal";
 import { GuestBook } from "../widgets/GuestBook";
 import { guestbookStats } from "../../lib/guestbook";
-import { consumeBgQuota, bgQuotaRemaining, bgQuotaRemainingAsync, bgGetAsync, bgSetAsync, bgClearAsync } from "../../lib/bgQuota";
-import { isSupabaseConfigured } from "../../lib/supabase";
+import { cloud } from "../../lib/cloud";
 import { detectBgTone, compressImage } from "../../lib/imageTone";
-import { isAdminSession } from "../admin/AdminLogin";
+import { isAdminSession, getAdminHash } from "../admin/AdminLogin";
 import { toast } from "../widgets/Toast";
 import type { LinkItem } from "../../data/types";
 
@@ -44,34 +43,33 @@ export function RightRail() {
   const [bgBusy, setBgBusy] = useState(false);
   const bgFileRef = useRef<HTMLInputElement>(null);
   const s = getSettings();
-  const [remaining, setRemaining] = useState(bgQuotaRemaining());
+  const [remaining, setRemaining] = useState(10);
   const isAdmin = isAdminSession();
 
   // 挂载时若已配置数据库，展示共享配额剩余次数，并加载所有设备共享的背景
   useEffect(() => {
-    if (isSupabaseConfigured(getSettings().supabase)) {
-      void bgQuotaRemainingAsync().then((r) => { if (r !== null) setRemaining(r); });
-      void bgGetAsync().then((r) => {
-        if (r && r.bgImage) {
-          const cur = getSettings();
-          if (cur.bgImage !== r.bgImage || cur.bgTone !== r.bgTone) {
-            setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
-          }
+    if (!cloud.configured()) return;
+    void cloud.bg.quotaRemaining(isAdmin).then((r) => { if (r !== Infinity) setRemaining(r); });
+    void cloud.bg.get().then((r) => {
+      if (r && r.bgImage) {
+        const cur = getSettings();
+        if (cur.bgImage !== r.bgImage || cur.bgTone !== r.bgTone) {
+          setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
         }
-      });
-    }
-  }, []);
+      }
+    });
+  }, [isAdmin]);
 
   // 上传/设置背景：先消耗配额（管理员不限），再检测深浅切换文字颜色
   const applyBg = async (src: string) => {
     if (!s.homeTransparent) { toast("请先开启「背景透明化」", "warn"); return; }
     setBgBusy(true);
     try {
-      const q = await consumeBgQuota();
+      const q = await cloud.bg.quotaConsume(isAdmin);
       if (!q.ok) { toast(`今日上传次数已用尽（每日共 10 次），明天再来吧`, "warn"); return; }
       const tone = await detectBgTone(src);
       setSettings({ bgImage: src, bgTone: tone });
-      await bgSetAsync(src, tone); // 写入数据库，实现所有设备同步
+      await cloud.bg.set(src, tone); // 写入数据库，实现所有设备同步
       setRemaining(q.remaining); // 同步共享配额剩余次数
       toast(isAdmin ? "背景已更新（管理员不限次数）" : `背景已更新，今日剩余 ${q.remaining} 次`, "ok");
     } finally {
@@ -245,7 +243,7 @@ export function RightRail() {
               {s.bgImage && <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={async () => {
                 setSettings({ bgImage: "", bgTone: "dark" });
                 if (isAdmin) {
-                  const ok = await bgClearAsync();
+                  const ok = await cloud.bg.clear(getAdminHash());
                   toast(ok ? "已清除所有设备共享背景" : "本地已清除，云端同步失败", ok ? "ok" : "warn");
                 }
               }}>✕ 清除{isAdmin ? "（全部设备）" : ""}</button>}
