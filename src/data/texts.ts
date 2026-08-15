@@ -40,6 +40,9 @@ export const DEFAULT_TEXTS: Record<string, string> = {
   "promo.tag": "PROMO",
   "ann.tag": "ANNOUNCE",
   "demo.badge": "DEMO",
+  "rotate.title": "请将设备横屏",
+  "rotate.sub": "旋转手机/平板至横向，以获得更好的使用体验",
+  "rotate.dismiss": "仍要竖屏使用",
 };
 
 export const QUOTES: string[] = [

@@ -8,13 +8,15 @@ import { MoodPanel } from "./components/widgets/MoodPanel";
 import { TechNewsBoard } from "./components/widgets/TechNewsBoard";
 import { ResizableBoard } from "./components/widgets/ResizableBoard";
 import { Toaster } from "./components/widgets/Toast";
+import { RotateOverlay } from "./components/widgets/RotateOverlay";
 import { MechaPet } from "./components/pet/MechaPet";
 import { MusicAutoWatch } from "./components/music/MusicAutoWatch";
 import { AdminPage } from "./components/admin/AdminPage";
 import { Corners } from "./components/widgets/Modal";
-import { getSettings, setTexts, stats, t, useSettings, useStore } from "./lib/dataService";
+import { getSettings, setSettings, setTexts, stats, syncTextsFromCloud, syncSiteDataFromCloud, t, useSettings, useStore } from "./lib/dataService";
 import { isAdminSession } from "./components/admin/AdminLogin";
 import { music, sfx } from "./lib/audio";
+import { bgGetAsync } from "./lib/bgQuota";
 import type { Promo } from "./data/types";
 
 function useHashRoute() {
@@ -47,6 +49,16 @@ function GlobalEffects() {
     const onEvt = () => setAdminOn(isAdminSession());
     window.addEventListener("mecha:adminsession", onEvt);
     return () => window.removeEventListener("mecha:adminsession", onEvt);
+  }, []);
+
+  // 进入站点时拉取云端文案与全站数据，保证各设备看到一致的内容
+  useEffect(() => {
+    void syncTextsFromCloud();
+    void syncSiteDataFromCloud();
+    // 拉取云端共享背景（RightRail 也会拉，但这里保证首帧就应用，避免闪烁）
+    void bgGetAsync().then((r) => {
+      if (r && r.bgImage) setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
+    });
   }, []);
 
   // 后台模式行内编辑：所有 [data-tk] 文字可编辑，卡片显示删除/编辑
@@ -294,6 +306,7 @@ export default function App() {
       {hash.startsWith("#/admin") ? <AdminPage /> : <Home />}
       {!hash.startsWith("#/admin") && <MechaPet />}
       {!hash.startsWith("#/admin") && <MusicAutoWatch />}
+      <RotateOverlay />
       <Toaster />
     </>
   );

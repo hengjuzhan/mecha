@@ -3,7 +3,8 @@ import { DEFAULT_CATEGORIES, DEFAULT_LINKS, DEFAULT_ANNOUNCEMENTS, DEFAULT_PROMO
 import { DEFAULT_TEXTS } from "../data/texts";
 import type { Announcement, Category, LinkItem, MusicSource, Overlay, Promo, Settings } from "../data/types";
 import { fuzzyScore, todayStr, uid } from "./utils";
-import { isSupabaseConfigured } from "./supabase";
+import { isSupabaseConfigured, visitsReset, textsGet, textsSet, siteDataGet, siteDataSet } from "./supabase";
+import { getAdminHash, isAdminSession } from "../components/admin/AdminLogin";
 
 const LS_OVERLAY = "mechanav.data.v1";
 const LS_SET = "mechanav.settings.v1";
@@ -151,12 +152,94 @@ export function setSettings(patch: Partial<Settings>) {
   scheduleSettingsWrite();
   settingsEmit(); // 仅通知 settings 订阅者，不再触发全站 useStore 重渲染
 }
-export function setCategories(cats: Category[]) { state = { ...state, categories: cats }; scheduleOverlayWrite(); emit(); }
-export function setLinks(links: LinkItem[]) { state = { ...state, links }; scheduleOverlayWrite(); emit(); }
-export function setAnnouncements(list: Announcement[]) { state = { ...state, announcements: list }; scheduleOverlayWrite(); emit(); }
-export function setPromos(list: Promo[]) { state = { ...state, promos: list }; scheduleOverlayWrite(); emit(); }
-export function setMusicSources(list: MusicSource[]) { state = { ...state, musicSources: list }; scheduleOverlayWrite(); emit(); }
-export function setTexts(patch: Record<string, string>) { state = { ...state, texts: { ...state.texts, ...patch } }; scheduleOverlayWrite(); textsEmit(); emit(); }
+export function setCategories(cats: Category[]) { state = { ...state, categories: cats }; scheduleOverlayWrite(); emit(); pushSiteDataToCloud(); }
+export function setLinks(links: LinkItem[]) { state = { ...state, links }; scheduleOverlayWrite(); emit(); pushSiteDataToCloud(); }
+export function setAnnouncements(list: Announcement[]) { state = { ...state, announcements: list }; scheduleOverlayWrite(); emit(); pushSiteDataToCloud(); }
+export function setPromos(list: Promo[]) { state = { ...state, promos: list }; scheduleOverlayWrite(); emit(); pushSiteDataToCloud(); }
+export function setMusicSources(list: MusicSource[]) { state = { ...state, musicSources: list }; scheduleOverlayWrite(); emit(); pushSiteDataToCloud(); }
+export function setTexts(patch: Record<string, string>) {
+  state = { ...state, texts: { ...state.texts, ...patch } };
+  scheduleOverlayWrite(); textsEmit(); emit();
+  pushTextsToCloud();
+}
+
+/* ---- 文案云端同步：管理员编辑后推送到数据库，各设备进入时拉取，实现跨设备文案一致 ---- */
+let textsSyncTimer: number | null = null;
+function pushTextsToCloud() {
+  if (textsSyncTimer !== null) return;
+  textsSyncTimer = window.setTimeout(() => {
+    textsSyncTimer = null;
+    void doPushTexts();
+  }, 500);
+}
+async function doPushTexts() {
+  const cfg = getSettings().supabase;
+  if (!isSupabaseConfigured(cfg) || !isAdminSession()) return;
+  const token = getAdminHash();
+  if (!token) return;
+  await textsSet(cfg, state.texts, token);
+}
+
+/** 进入站点时从云端拉取文案覆盖层（云端为跨设备权威源，覆盖本地旧值） */
+export async function syncTextsFromCloud(): Promise<void> {
+  const cfg = getSettings().supabase;
+  if (!isSupabaseConfigured(cfg)) return;
+  const db = await textsGet(cfg);
+  if (db && Object.keys(db).length > 0) {
+    state = { ...state, texts: { ...db } };
+    textsEmit(); emit();
+  }
+}
+
+/* ---- 全站数据云端同步：管理员编辑分类/站点/公告/推广位/音乐源后推送到数据库，各设备进入时拉取 ---- */
+let siteDataSyncTimer: number | null = null;
+function pushSiteDataToCloud() {
+  if (siteDataSyncTimer !== null) return;
+  siteDataSyncTimer = window.setTimeout(() => {
+    siteDataSyncTimer = null;
+    void doPushSiteData();
+  }, 800);
+}
+async function doPushSiteData() {
+  const cfg = getSettings().supabase;
+  if (!isSupabaseConfigured(cfg) || !isAdminSession()) return;
+  const token = getAdminHash();
+  if (!token) return;
+  await siteDataSet(cfg, {
+    categories: state.categories,
+    links: state.links,
+    announcements: state.announcements,
+    promos: state.promos,
+    musicSources: state.musicSources,
+  }, token);
+}
+
+/** 进入站点时从云端拉取全站数据（云端为跨设备权威源，覆盖本地旧值） */
+export async function syncSiteDataFromCloud(): Promise<void> {
+  const cfg = getSettings().supabase;
+  if (!isSupabaseConfigured(cfg)) return;
+  const db = await siteDataGet(cfg);
+  if (db && typeof db === "object") {
+    const cats = Array.isArray(db.categories) ? (db.categories as Category[]) : null;
+    const lks = Array.isArray(db.links) ? (db.links as LinkItem[]) : null;
+    const anns = Array.isArray(db.announcements) ? (db.announcements as Announcement[]) : null;
+    const prs = Array.isArray(db.promos) ? (db.promos as Promo[]) : null;
+    const mss = Array.isArray(db.musicSources) ? (db.musicSources as MusicSource[]) : null;
+    if (cats || lks || anns || prs || mss) {
+      state = {
+        ...state,
+        categories: cats ?? state.categories,
+        links: lks ?? state.links,
+        announcements: anns ?? state.announcements,
+        promos: prs ?? state.promos,
+        musicSources: mss ?? state.musicSources,
+      };
+      // 同步写入 localStorage 持久化
+      flushOverlayWrite();
+      emit();
+    }
+  }
+}
 
 /** 文案读取：管理员覆盖层 → 默认文案 */
 export function t(key: string): string { return state.texts[key] || DEFAULT_TEXTS[key] || key; }
@@ -185,7 +268,9 @@ export function resetOverlay() {
     promos: DEFAULT_PROMOS, musicSources: DEFAULT_MUSIC_SOURCES, texts: {},
   };
   flushOverlayWrite();
-  emit();
+  textsEmit(); emit();
+  pushTextsToCloud();
+  pushSiteDataToCloud();
 }
 
 export function exportJSON() {
@@ -198,15 +283,20 @@ export function exportJSON() {
 
 export function importJSON(obj: unknown): boolean {
   const d = (obj ?? {}) as Partial<Overlay>;
-  if (!d || (!d.categories && !d.links && !d.announcements && !d.promos && !d.musicSources)) return false;
-  if (d.categories) state.categories = d.categories;
-  if (d.links) state.links = d.links;
-  if (d.announcements) state.announcements = d.announcements;
-  if (d.promos) state.promos = d.promos;
-  if (d.musicSources) state.musicSources = d.musicSources;
-  if (d.texts) state.texts = d.texts;
+  if (!d || (!d.categories && !d.links && !d.announcements && !d.promos && !d.musicSources && !d.texts)) return false;
+  let changed = false;
+  if (d.categories) { state.categories = d.categories; changed = true; }
+  if (d.links) { state.links = d.links; changed = true; }
+  if (d.announcements) { state.announcements = d.announcements; changed = true; }
+  if (d.promos) { state.promos = d.promos; changed = true; }
+  if (d.musicSources) { state.musicSources = d.musicSources; changed = true; }
+  if (d.texts) { state.texts = { ...state.texts, ...d.texts }; changed = true; }
   flushOverlayWrite();
-  emit();
+  textsEmit(); emit();
+  if (changed) {
+    pushSiteDataToCloud();
+    if (d.texts) pushTextsToCloud();
+  }
   return true;
 }
 
@@ -223,6 +313,21 @@ export function bumpVisitsLocal(): { today: number; total: number } {
   flushSettingsWrite();
   emit();
   return { today: todayCnt, total };
+}
+
+/**
+ * 管理员清空访问人数：本地计数归零并持久化，同时触发顶栏即时清空；
+ * 若配置了 Supabase 则同步清空云端访问记录（凭管理员令牌校验）。
+ * 返回是否成功（仅云端调用失败时返回 false，本地清空始终生效）。
+ */
+export async function resetVisits(): Promise<boolean> {
+  setSettings({ visitsToday: 0, visitsTotal: 0, visitsDay: todayStr() });
+  window.dispatchEvent(new CustomEvent("mecha:visits-reset"));
+  const cfg = getSettings().supabase;
+  if (!isSupabaseConfigured(cfg)) return true;
+  const token = getAdminHash();
+  if (!token) return false;
+  return await visitsReset(cfg, token);
 }
 
 /* ---------- 全站搜索：站点名 / 编号 L0001 / 分类 / 公告 P0001 ---------- */

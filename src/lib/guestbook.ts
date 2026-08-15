@@ -154,7 +154,7 @@ export async function clearGuestbook(): Promise<boolean> {
     try {
       const r = await fetch(
         `${c.url.replace(/\/$/, "")}/rest/v1/rpc/guest_clear`,
-        { method: "POST", headers: { apikey: c.key, Authorization: `Bearer ${c.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ token: getAdminHash() }) },
+        { method: "POST", headers: { apikey: c.key, Authorization: `Bearer ${c.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ p_token: getAdminHash() }) },
       );
       if (!r.ok) throw new Error(String(r.status));
       list = [];

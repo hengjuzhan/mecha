@@ -29,7 +29,7 @@ const TABS: { id: string; label: string }[] = [
   { id: "music", label: "▣ 音乐源" },
   { id: "appear", label: "▣ 外观" },
   { id: "data", label: "▣ 备份" },
-  { id: "sys", label: "▣ 安全" },
+  { id: "sys", label: "▣ 系统" },
 ];
 
 export function AdminPage() {

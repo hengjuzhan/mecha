@@ -25,34 +25,59 @@ interface TabConf {
 }
 
 const LS_TECH = "mechanav.technews.v4";
-const UPDATE_MS = 1.5 * 60 * 60 * 1000; // 每 1.5 小时自动更新
+const UPDATE_MS = 15 * 60 * 1000; // 每 15 分钟自动更新，比数据源频率高以保证及时
 
 const enc = (s: string) => encodeURIComponent(s);
 
-/** 列出 GitHub 仓库某目录下的文件名 */
+/** 列出 GitHub 仓库某目录下的文件名：先直连，失败则经 CORS 代理兜底 */
 async function ghList(ref: RepoRef, path: string): Promise<string[] | null> {
+  const url = `https://api.github.com/repos/${ref.owner}/${ref.repo}/contents/${enc(path)}?ref=${ref.branch}`;
+  const tryParse = async (text: string): Promise<string[] | null> => {
+    try {
+      const j = JSON.parse(text);
+      if (!Array.isArray(j)) return null;
+      return j.map((e: { name?: string }) => e.name).filter(Boolean) as string[];
+    } catch { return null; }
+  };
+  // 直连
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 10000);
+    const t = setTimeout(() => ctrl.abort(), 8000);
     let res: Response;
-    try { res = await fetch(`https://api.github.com/repos/${ref.owner}/${ref.repo}/contents/${enc(path)}?ref=${ref.branch}`, { signal: ctrl.signal }); } finally { clearTimeout(t); }
-    if (!res.ok) return null;
-    const j = await res.json();
-    if (!Array.isArray(j)) return null;
-    return j.map((e: { name?: string }) => e.name).filter(Boolean) as string[];
-  } catch { return null; }
+    try { res = await fetch(url, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+    if (res.ok) {
+      const names = await tryParse(await res.text());
+      if (names) return names;
+    }
+  } catch { /* 直连失败，走代理 */ }
+  // CORS 代理兜底（注意：allorigins/get 返回 {"contents": "..."} 格式，需解包）
+  try {
+    const proxied = await fetchRaw(url, 10000);
+    if (proxied) {
+      const names = await tryParse(proxied);
+      if (names) return names;
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
-/** 读取 GitHub 仓库某个文件的原始内容 */
+/** 读取 GitHub 仓库某个文件的原始内容：先直连，失败则经 CORS 代理兜底 */
 async function ghRaw(ref: RepoRef, path: string): Promise<string | null> {
+  const url = `https://raw.githubusercontent.com/${ref.owner}/${ref.repo}/${ref.branch}/${path}`;
+  // 先尝试直连（多数浏览器/地区可直接访问 raw.githubusercontent.com）
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 12000);
+    const t = setTimeout(() => ctrl.abort(), 8000);
     let res: Response;
-    try { res = await fetch(`https://raw.githubusercontent.com/${ref.owner}/${ref.repo}/${ref.branch}/${path}`, { signal: ctrl.signal }); } finally { clearTimeout(t); }
-    if (!res.ok) return null;
-    return res.text();
-  } catch { return null; }
+    try { res = await fetch(url, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.trim().length > 20) return text;
+    }
+  } catch { /* 直连失败，走代理 */ }
+  // 兜底：经 CORS 代理拉取
+  const proxied = await fetchRaw(url, 10000);
+  return proxied && proxied.trim().length > 20 ? proxied : null;
 }
 
 /** 经多个 CORS 代理依次尝试抓取原始文本，规避浏览器 CORS 与单一代理失效 */
@@ -108,16 +133,29 @@ function cnDate(d: Date): string {
 }
 
 async function ghListTrend(path: string): Promise<string[] | null> {
+  const url = `${TREND_API}/${path}`;
+  const tryParse = (text: string): string[] | null => {
+    try {
+      const j = JSON.parse(text);
+      if (!Array.isArray(j)) return null;
+      return j.map((e: { name?: string }) => e.name).filter(Boolean) as string[];
+    } catch { return null; }
+  };
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 10000);
+    const t = setTimeout(() => ctrl.abort(), 8000);
     let res: Response;
-    try { res = await fetch(`${TREND_API}/${path}`, { signal: ctrl.signal }); } finally { clearTimeout(t); }
-    if (!res.ok) return null;
-    const j = await res.json();
-    if (!Array.isArray(j)) return null;
-    return j.map((e: { name?: string }) => e.name).filter(Boolean) as string[];
-  } catch { return null; }
+    try { res = await fetch(url, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+    if (res.ok) {
+      const names = tryParse(await res.text());
+      if (names) return names;
+    }
+  } catch { /* 直连失败 */ }
+  try {
+    const proxied = await fetchRaw(url, 10000);
+    if (proxied) { const names = tryParse(proxied); if (names) return names; }
+  } catch { /* ignore */ }
+  return null;
 }
 
 async function resolveTrendTxt(): Promise<string | null> {
@@ -384,11 +422,17 @@ export function TechNewsBoard() {
 
   useEffect(() => {
     const c = readCache();
-    if (c.t && Date.now() - c.t < UPDATE_MS) {
-      setUpdated((u) => ({ ...u, [active]: new Date(c.t).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) }));
-      return;
-    }
-    void loadTab(active);
+    // 先立即加载当前激活标签页（缓存过期则强制拉新，否则用缓存但后台刷新）
+    void loadTab(active, !(c.t && Date.now() - c.t < UPDATE_MS));
+    // 依次预加载其他标签页（错开 300ms 避免并发请求过多）
+    TABS.forEach((tb, i) => {
+      if (tb.key === active) return;
+      window.setTimeout(() => {
+        const cc = readCache();
+        const stale = !cc.byTab[tb.key] || !cc.t || Date.now() - cc.t >= UPDATE_MS;
+        void loadTab(tb.key, stale);
+      }, 400 + i * 300);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -1,7 +1,7 @@
 import { fetcht, todayStr } from "./utils";
 import { getSettings } from "./dataService";
 import { isSupabaseConfigured } from "./supabase";
-import { isAdminSession } from "../components/admin/AdminLogin";
+import { isAdminSession, getAdminHash } from "../components/admin/AdminLogin";
 
 const LS_KEY = "mechanav.bgquota.v1";
 const DAILY_MAX = 10; // 每日所有访客共享上传次数
@@ -82,6 +82,30 @@ export async function bgSetAsync(image: string, tone: string): Promise<boolean> 
         const res = await fetch(
           `${cfg.url.replace(/\/$/, "")}/rest/v1/rpc/bg_set`, { signal: ctrl.signal,
             method: "POST", headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ p_image: image, p_tone: tone }) },
+        );
+        return res.ok;
+      } finally { clearTimeout(timer); }
+    } catch { /* 后端不可用则仅本地生效 */ }
+  }
+  return false;
+}
+
+/**
+ * 管理员清除所有设备共享的背景（bg_clear RPC，凭管理员令牌校验）。
+ * 返回是否成功清除云端；未配置数据库时返回 false（本地清空由调用方 setSettings 完成）。
+ */
+export async function bgClearAsync(): Promise<boolean> {
+  const cfg = getSettings().supabase;
+  if (isSupabaseConfigured(cfg)) {
+    try {
+      const token = getAdminHash();
+      if (!token) return false;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 6000);
+      try {
+        const res = await fetch(
+          `${cfg.url.replace(/\/$/, "")}/rest/v1/rpc/bg_clear`, { signal: ctrl.signal,
+            method: "POST", headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ p_token: token }) },
         );
         return res.ok;
       } finally { clearTimeout(timer); }

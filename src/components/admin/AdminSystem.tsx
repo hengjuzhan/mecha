@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  getSettings, setSettings, setMusicSources, useSettings, useStore, exportJSON, importJSON, resetOverlay,
+  getSettings, setSettings, setMusicSources, useSettings, useStore, exportJSON, importJSON, resetOverlay, resetVisits,
 } from "../../lib/dataService";
 import { downloadJSON } from "../../lib/utils";
+import { isSupabaseConfigured, adminTokenInit } from "../../lib/supabase";
+import { bgClearAsync } from "../../lib/bgQuota";
 import { music } from "../../lib/audio";
 import type { Settings } from "../../data/types";
-import { setupAdmin, verifyAdmin } from "./AdminLogin";
+import { setupAdmin, verifyAdmin, getAdminHash } from "./AdminLogin";
 import { toast } from "../widgets/Toast";
 import { Corners } from "../widgets/Modal";
 import { RangeInput } from "../ui/RangeInput";
@@ -220,7 +222,11 @@ export function AppearanceSection() {
             <Toggle label="主页透明（露出背景图）" value={s.homeTransparent} onChange={(v) => setSettings({ homeTransparent: v })} />
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <button type="button" className="btn-mech h-8 px-3 text-xs" onClick={() => fileRef.current?.click()}>⬆ 上传背景图</button>
-              {s.bgImage && <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={() => setSettings({ bgImage: "" })}>✕ 清除背景</button>}
+              {s.bgImage && <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={async () => {
+                setSettings({ bgImage: "", bgTone: "dark" });
+                const ok = await bgClearAsync();
+                toast(ok ? "已清除所有设备共享背景" : "本地已清除，云端同步失败", ok ? "ok" : "warn");
+              }}>✕ 清除背景</button>}
             </div>
             <DebouncedInput className={`${inp} mt-1.5`} placeholder="或粘贴图片 URL（https://…）"
               value={/^https?:\/\//.test(s.bgImage) ? s.bgImage : ""}
@@ -328,13 +334,37 @@ export function SystemSection() {
     toast(ok ? "已清空全部留言" : "清空失败，请重试", ok ? "ok" : "warn");
   };
 
+  const clearVisits = async () => {
+    if (!window.confirm("确定清空全部访问人数吗？今日与累计访问计数将归零，此操作不可恢复。")) return;
+    const ok = await resetVisits();
+    toast(ok ? "已清空访问人数" : "本地已清空，但云端同步失败，请重试", ok ? "ok" : "warn");
+  };
+
+  const clearSharedBg = async () => {
+    if (!window.confirm("确定清除所有设备共享的自定义背景吗？包括云端记录，此操作不可恢复。")) return;
+    setSettings({ bgImage: "", bgTone: "dark" });
+    const ok = await bgClearAsync();
+    toast(ok ? "已清除共享背景" : "本地已清除，但云端同步失败，请重试", ok ? "ok" : "warn");
+  };
+
   const changePw = async () => {
     if (newPw.length < 6) { toast("新口令至少 6 位", "warn"); return; }
     if (newPw !== newPw2) { toast("两次口令不一致", "warn"); return; }
     if ((await verifyAdmin(oldPw)) !== "ok") { toast("原口令错误", "warn"); return; }
+    const oldHash = getAdminHash();
     await setupAdmin(newPw);
+    const newHash = getAdminHash();
+    // 同步新令牌到数据库
+    const s = getSettings();
+    if (isSupabaseConfigured(s.supabase) && newHash) {
+      void adminTokenInit(s.supabase, newHash, oldHash).then((ok) => {
+        if (ok) toast("口令已更新（SHA-256 存储）", "ok");
+        else toast("口令已更新，但云端同步失败", "warn");
+      });
+    } else {
+      toast("口令已更新（SHA-256 存储）", "ok");
+    }
     setOldPw(""); setNewPw(""); setNewPw2("");
-    toast("口令已更新（SHA-256 存储）", "ok");
   };
 
   const saveDb = () => {
@@ -344,6 +374,13 @@ export function SystemSection() {
     if (!/^https?:\/\//i.test(url)) { toast("URL 需以 http(s):// 开头", "warn"); return; }
     setSettings({ supabase: { url, key } });
     window.dispatchEvent(new CustomEvent("mecha:guestbook-backend", { detail: { on: true } }));
+    // 同步管理员令牌到数据库，确保云端 RPC（bg_clear / visits_reset / texts_set 等）能通过令牌校验
+    const token = getAdminHash();
+    if (token) {
+      void adminTokenInit({ url, key }, token).then((ok) => {
+        if (ok) console.log("[mecha] admin token synced to database");
+      });
+    }
     toast("数据库连接已保存", "ok");
   };
 
@@ -398,6 +435,26 @@ export function SystemSection() {
           <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={clearAllGuestbook}>🗑 清空全部留言</button>
           <span className="text-[10px] text-[var(--c-dim)]">
             当前共 {getGuestbook().length} 条留言 · {isGuestbookBackend() ? "数据库模式（清空即时生效）" : "本地模式"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-sm border border-[var(--c-border)] p-3">
+        <h3 className="num mb-2 text-xs tracking-[0.25em] text-[var(--c-orange)]">访问人数管理</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={() => void clearVisits()}>🗑 清空访问人数</button>
+          <span className="text-[10px] text-[var(--c-dim)]">
+            今日与累计计数归零{isSupabaseConfigured(s.supabase) ? " · 云端记录同步清空" : " · 本地模式"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-sm border border-[var(--c-border)] p-3">
+        <h3 className="num mb-2 text-xs tracking-[0.25em] text-[var(--c-orange)]">背景管理</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={() => void clearSharedBg()}>🗑 清除共享背景</button>
+          <span className="text-[10px] text-[var(--c-dim)]">
+            清除所有设备共享的自定义背景{isSupabaseConfigured(s.supabase) ? " · 云端记录同步清空" : " · 本地模式"}
           </span>
         </div>
       </div>

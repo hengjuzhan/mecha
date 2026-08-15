@@ -50,6 +50,12 @@ export function TopBar() {
     return { today: s.visitsToday, total: s.visitsTotal };
   });
   const [demo, setDemo] = useState(() => !isBackendOk());
+  // 管理员清空访问人数时，顶栏计数即时归零（随机累加计时器随后从 0 重新开始）
+  useEffect(() => {
+    const onReset = () => setVisits({ today: 0, total: 0 });
+    window.addEventListener("mecha:visits-reset", onReset);
+    return () => window.removeEventListener("mecha:visits-reset", onReset);
+  }, []);
   useEffect(() => {
     setVisits(bumpVisitsLocal()); // 按天去重，副作用在 effect 中执行
     const cfg = getSettings().supabase;

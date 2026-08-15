@@ -4,7 +4,7 @@ import { dateSeed, mulberry } from "../../lib/utils";
 import { Modal } from "../widgets/Modal";
 import { GuestBook } from "../widgets/GuestBook";
 import { guestbookStats } from "../../lib/guestbook";
-import { consumeBgQuota, bgQuotaRemaining, bgQuotaRemainingAsync, bgGetAsync, bgSetAsync } from "../../lib/bgQuota";
+import { consumeBgQuota, bgQuotaRemaining, bgQuotaRemainingAsync, bgGetAsync, bgSetAsync, bgClearAsync } from "../../lib/bgQuota";
 import { isSupabaseConfigured } from "../../lib/supabase";
 import { detectBgTone, compressImage } from "../../lib/imageTone";
 import { isAdminSession } from "../admin/AdminLogin";
@@ -242,7 +242,13 @@ export function RightRail() {
               <input type="text" className="h-8 min-w-0 flex-1 rounded-sm border border-[var(--c-border)] bg-[color-mix(in_srgb,var(--c-bg)_55%,var(--c-panel2))] px-2 text-xs" placeholder="或粘贴图片 URL（https://…）"
                 defaultValue={/^https?:\/\//.test(s.bgImage) ? s.bgImage : ""}
                 onKeyDown={(e) => { if (e.key === "Enter" && !bgBusy) { const v = (e.target as HTMLInputElement).value.trim(); if (v) void applyBg(v); } }} />
-              {s.bgImage && <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={() => setSettings({ bgImage: "", bgTone: "dark" })}>✕ 清除</button>}
+              {s.bgImage && <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={async () => {
+                setSettings({ bgImage: "", bgTone: "dark" });
+                if (isAdmin) {
+                  const ok = await bgClearAsync();
+                  toast(ok ? "已清除所有设备共享背景" : "本地已清除，云端同步失败", ok ? "ok" : "warn");
+                }
+              }}>✕ 清除{isAdmin ? "（全部设备）" : ""}</button>}
             </div>
             <input ref={bgFileRef} type="file" accept="image/*" className="hidden"
               onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />

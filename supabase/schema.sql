@@ -87,6 +87,27 @@ $$;
 revoke all on function bump_visits() from public;
 grant execute on function bump_visits() to anon, authenticated;
 
+-- 管理员清空全部访问记录（需有效的管理员口令 token）
+-- 前端「系统 → 清空访问人数」调用，令牌 = 管理员口令 SHA-256
+create or replace function visits_reset(p_token text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_token text;
+begin
+  select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if p_token is null or v_token = '' or p_token <> v_token then
+    raise exception 'invalid admin token';
+  end if;
+  delete from visits;
+end;
+$$;
+
+revoke all on function visits_reset(text) from public;
+grant execute on function visits_reset(text) to anon, authenticated;
+
 -- ============================================================
 -- RPC：管理员全量导入（凭 settings.admin.token 令牌校验）
 -- 前端「系统 → 上传全量」调用，令牌 = 管理员口令 SHA-256
@@ -135,6 +156,77 @@ $$;
 
 revoke all on function admin_import(jsonb, text) from public;
 grant execute on function admin_import(jsonb, text) to anon, authenticated;
+
+-- ============================================================
+-- RPC：站点文案覆盖层（跨设备同步）
+-- 管理员行内编辑文字后推送 texts_set（凭 settings.admin.token 校验），
+-- 各设备进入时通过 texts_get 拉取，实现所有设备文案一致
+-- ============================================================
+create or replace function texts_get()
+returns table (texts jsonb)
+language sql
+security definer stable
+as $$
+  select coalesce(value, '{}'::jsonb) from settings where key = 'texts';
+$$;
+
+drop function if exists texts_set(jsonb, text);
+create or replace function texts_set(p_texts jsonb, p_token text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_token text;
+begin
+  select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if p_token is null or v_token = '' or p_token <> v_token then
+    raise exception 'invalid admin token';
+  end if;
+  insert into settings (key, value) values ('texts', coalesce(p_texts, '{}'::jsonb))
+  on conflict (key) do update set value = coalesce(excluded.value, '{}'::jsonb);
+end;
+$$;
+
+revoke all on function texts_get() from public;
+revoke all on function texts_set(jsonb, text) from public;
+grant execute on function texts_get() to anon, authenticated;
+grant execute on function texts_set(jsonb, text) to anon, authenticated;
+
+-- ============================================================
+-- RPC：全站数据（分类/站点/公告/推广位/音乐源）云端同步
+-- 管理员编辑任意条目后推送 site_data_set（凭 settings.admin.token 校验），
+-- 各设备进入时通过 site_data_get 拉取，实现所有设备数据一致
+-- ============================================================
+create or replace function site_data_get()
+returns table (data jsonb)
+language sql
+security definer stable
+as $$
+  select coalesce(value, '{}'::jsonb) from settings where key = 'sitedata';
+$$;
+
+create or replace function site_data_set(p_data jsonb, p_token text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_token text;
+begin
+  select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if p_token is null or v_token = '' or p_token <> v_token then
+    raise exception 'invalid admin token';
+  end if;
+  insert into settings (key, value) values ('sitedata', coalesce(p_data, '{}'::jsonb))
+  on conflict (key) do update set value = coalesce(excluded.value, '{}'::jsonb);
+end;
+$$;
+
+revoke all on function site_data_get() from public;
+revoke all on function site_data_set(jsonb, text) from public;
+grant execute on function site_data_get() to anon, authenticated;
+grant execute on function site_data_set(jsonb, text) to anon, authenticated;
 
 -- ============================================================
 -- 访客留言板：表 + RPC（支持楼中楼回复；匿名可读写）
@@ -299,15 +391,56 @@ revoke all on function bg_set(text, text) from public;
 grant execute on function bg_get() to anon, authenticated;
 grant execute on function bg_set(text, text) to anon, authenticated;
 
+-- 管理员清除所有设备共享的背景（需有效的管理员口令 token）
+-- 前端「系统 → 清除共享背景」调用，令牌 = 管理员口令 SHA-256
+create or replace function bg_clear(p_token text)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_token text;
+begin
+  select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if p_token is null or v_token = '' or p_token <> v_token then
+    raise exception 'invalid admin token';
+  end if;
+  update site_bg set bg_image = '', bg_tone = 'dark', updated_at = now() where id = 1;
+end;
+$$;
+
+revoke all on function bg_clear(text) from public;
+grant execute on function bg_clear(text) to anon, authenticated;
+
 alter table site_bg enable row level security;
 
 -- ============================================================
--- 管理员令牌初始化（可选）：
--- 将下方 token 替换为管理员口令的 SHA-256 十六进制值
+-- RPC：管理员令牌初始化（首次设置 admin token，无需旧令牌校验）
+-- 前端保存数据库连接时自动调用，将管理员口令 SHA-256 推送到数据库
+-- 设置后再次调用需提供旧令牌（防止被覆盖）
 -- ============================================================
--- insert into settings (key, value)
--- values ('admin', '{"token":"240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"}')
--- on conflict (key) do nothing; -- 示例为 admin123 的 SHA-256
+create or replace function admin_token_init(p_token text, p_old_token text default null)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_token text;
+begin
+  select coalesce(value->>'token', '') into v_token from settings where key = 'admin';
+  if v_token <> '' then
+    -- 已有令牌：需要提供旧令牌才能修改
+    if p_old_token is null or p_old_token = '' or p_old_token <> v_token then
+      raise exception 'admin token already exists; provide p_old_token to change';
+    end if;
+  end if;
+  insert into settings (key, value) values ('admin', jsonb_build_object('token', coalesce(p_token, '')))
+  on conflict (key) do update set value = jsonb_build_object('token', coalesce(p_token, ''));
+end;
+$$;
+
+revoke all on function admin_token_init(text, text) from public;
+grant execute on function admin_token_init(text, text) to anon, authenticated;
 
 -- ============================================================
 -- RLS：匿名只读；写入需管理员（authenticated 角色）

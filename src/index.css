@@ -437,3 +437,29 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   .resize-handle.h { width: 16px; }
   .resize-handle.v { height: 16px; }
 }
+
+/* ---- 手机/平板竖屏进入：横屏使用提醒遮罩（仅触屏设备，桌面不显示） ---- */
+.rotate-overlay {
+  position: fixed; inset: 0; z-index: 99999;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--c-bg, #0d1424) 92%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.rotate-box {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  max-width: 360px; text-align: center;
+  padding: 32px 28px;
+  border: 1px solid var(--c-border, #3a4a66);
+  background: color-mix(in srgb, var(--c-panel2, #131c30) 96%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-cyan, #00e5ff) 35%, transparent), 0 12px 40px rgba(0,0,0,.45);
+}
+.rotate-icon { color: var(--c-cyan, #00e5ff); animation: rotate-swing 1.6s ease-in-out infinite; }
+@keyframes rotate-swing {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(90deg); }
+}
+.rotate-title { font-size: 20px; font-weight: 700; letter-spacing: .08em; color: var(--c-text, #e8eefc); }
+.rotate-sub { font-size: 13px; line-height: 1.7; color: var(--c-dim, #7a8aa6); }
+.rotate-btn { margin-top: 4px; height: 38px; padding: 0 18px; font-size: 13px; }
