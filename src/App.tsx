@@ -253,7 +253,7 @@ function Home() {
           </section>
 
           {/* 三矩形框：公告发布区 / AI开源快讯 / 心情轮播（受最大活动范围约束，内容框内上下滚动） */}
-          <div className="flex flex-col gap-3 md:flex-row" style={{ maxHeight: 640 }}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:max-h-[640px]">
             <ResizableBoard side="left" title={t("board.ann")} tag={t("ann.tag")} accent="orange" maxH={560}>
               <AnnounceBoard />
             </ResizableBoard>

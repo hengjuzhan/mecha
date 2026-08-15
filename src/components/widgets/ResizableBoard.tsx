@@ -66,6 +66,14 @@ export function ResizableBoard({
     window.addEventListener("pointerup", up);
   };
 
+  // 移动端/平板：用 +/- 按钮调节高度（拖拽手柄在触屏上难以操作）
+  const bumpH = (delta: number) => {
+    const nh = clamp(size.h + delta, 160, maxH);
+    setSize({ ...size, h: nh });
+    const s = getSettings();
+    setSettings({ [key]: { ...s[key], h: nh } });
+  };
+
   const acc = accent === "cyan" ? "var(--c-cyan)" : accent === "magenta" ? "var(--c-magenta)" : "var(--c-orange)";
   const flexBasis = size.w > 0 ? size.w : W_INIT[side] * 100 + "%";
 
@@ -83,9 +91,19 @@ export function ResizableBoard({
       }}
     >
       <span className="qd tl" /><span className="qd tr" /><span className="qd bl" /><span className="qd br" />
-      <div className="flex items-center justify-between border-b border-[var(--c-border)] px-3 py-2">
-        <span className="text-sm font-semibold tracking-wide">{title}</span>
-        <span className="num text-[9px] tracking-[0.3em]" style={{ color: acc }}>◈ {tag}</span>
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--c-border)] px-3 py-2">
+        <span className="min-w-0 truncate text-sm font-semibold tracking-wide">{title}</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex items-center gap-1 lg:hidden">
+            <button type="button" onClick={() => bumpH(-60)}
+              className="grid h-7 w-7 place-items-center rounded border border-[var(--c-border)] text-base leading-none text-[var(--c-dim)] active:scale-90"
+              aria-label="调小高度">−</button>
+            <button type="button" onClick={() => bumpH(60)}
+              className="grid h-7 w-7 place-items-center rounded border border-[var(--c-border)] text-base leading-none text-[var(--c-dim)] active:scale-90"
+              aria-label="调大高度">+</button>
+          </div>
+          <span className="num text-[9px] tracking-[0.3em]" style={{ color: acc }}>◈ {tag}</span>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden p-2.5">{children}</div>
       <div className="resize-handle h" style={side === "right" ? { left: 0, right: "auto" } : undefined}

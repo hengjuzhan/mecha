@@ -393,3 +393,12 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
 [data-bg-tone="light"][data-home-transparent="on"] .glass {
   background: linear-gradient(160deg, color-mix(in srgb, #ffffff 28%, transparent), color-mix(in srgb, #eef5ff 34%, transparent));
 }
+
+/* ---- 移动端 / 平板（<1024px）：放大过小字号，保证可读性 ---- */
+@media (max-width: 1023px) {
+  .text-\[8px\] { font-size: 11px !important; }
+  .text-\[9px\] { font-size: 12px !important; }
+  .text-\[10px\] { font-size: 13px !important; }
+  .text-\[11px\] { font-size: 14px !important; }
+  .text-xs { font-size: 13px !important; }
+}
