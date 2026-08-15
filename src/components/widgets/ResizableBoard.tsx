@@ -73,6 +73,14 @@ export function ResizableBoard({
     const s = getSettings();
     setSettings({ [key]: { ...s[key], h: nh } });
   };
+  // 平板并排布局时，用 +/- 按钮自由调节宽度
+  const bumpW = (delta: number) => {
+    const base = size.w > 0 ? size.w : (boxRef.current?.clientWidth ?? 320);
+    const nw = clamp(base + delta, 240, 1400);
+    setSize({ ...size, w: nw });
+    const s = getSettings();
+    setSettings({ [key]: { ...s[key], w: nw } });
+  };
 
   const acc = accent === "cyan" ? "var(--c-cyan)" : accent === "magenta" ? "var(--c-magenta)" : "var(--c-orange)";
   const flexBasis = size.w > 0 ? size.w : W_INIT[side] * 100 + "%";
@@ -93,14 +101,24 @@ export function ResizableBoard({
       <span className="qd tl" /><span className="qd tr" /><span className="qd bl" /><span className="qd br" />
       <div className="flex items-center justify-between gap-2 border-b border-[var(--c-border)] px-3 py-2">
         <span className="min-w-0 truncate text-sm font-semibold tracking-wide">{title}</span>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <div className="flex items-center gap-1 lg:hidden">
+        <div className="flex shrink-0 items-center gap-2 xl:hidden">
+          <div className="flex items-center gap-0.5">
+            <span className="num text-[9px] leading-none text-[var(--c-dim)]">高</span>
             <button type="button" onClick={() => bumpH(-60)}
-              className="grid h-7 w-7 place-items-center rounded border border-[var(--c-border)] text-base leading-none text-[var(--c-dim)] active:scale-90"
+              className="grid h-6 w-6 place-items-center rounded border border-[var(--c-border)] text-[13px] leading-none text-[var(--c-dim)] active:scale-90"
               aria-label="调小高度">−</button>
             <button type="button" onClick={() => bumpH(60)}
-              className="grid h-7 w-7 place-items-center rounded border border-[var(--c-border)] text-base leading-none text-[var(--c-dim)] active:scale-90"
+              className="grid h-6 w-6 place-items-center rounded border border-[var(--c-border)] text-[13px] leading-none text-[var(--c-dim)] active:scale-90"
               aria-label="调大高度">+</button>
+          </div>
+          <div className="flex items-center gap-0.5">
+            <span className="num text-[9px] leading-none text-[var(--c-dim)]">宽</span>
+            <button type="button" onClick={() => bumpW(-40)}
+              className="grid h-6 w-6 place-items-center rounded border border-[var(--c-border)] text-[13px] leading-none text-[var(--c-dim)] active:scale-90"
+              aria-label="调小宽度">−</button>
+            <button type="button" onClick={() => bumpW(40)}
+              className="grid h-6 w-6 place-items-center rounded border border-[var(--c-border)] text-[13px] leading-none text-[var(--c-dim)] active:scale-90"
+              aria-label="调大宽度">+</button>
           </div>
           <span className="num text-[9px] tracking-[0.3em]" style={{ color: acc }}>◈ {tag}</span>
         </div>

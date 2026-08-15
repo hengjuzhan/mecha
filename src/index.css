@@ -406,3 +406,9 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   .text-\[11px\] { font-size: 14px !important; }
   .text-xs { font-size: 13px !important; }
 }
+
+/* ---- 平板（<1280px）：拖拽手柄加大触控热区，便于触屏自由缩放 ---- */
+@media (max-width: 1279px) {
+  .resize-handle.h { width: 16px; }
+  .resize-handle.v { height: 16px; }
+}
