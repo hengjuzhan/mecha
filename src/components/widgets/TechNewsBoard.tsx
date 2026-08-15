@@ -24,7 +24,7 @@ interface TabConf {
   fallback: TechItem[];
 }
 
-const LS_TECH = "mechanav.technews.v5";
+const LS_TECH = "mechanav.technews.v6";
 const UPDATE_MS = 15 * 60 * 1000; // 每 15 分钟自动更新
 
 const enc = (s: string) => encodeURIComponent(s);
@@ -61,10 +61,36 @@ async function ghList(ref: RepoRef, path: string): Promise<string[] | null> {
   return null;
 }
 
-/** 读取 GitHub 仓库某个文件的原始内容：先直连，失败则经 CORS 代理兜底 */
+/** jsDelivr CDN 读取 GitHub 仓库文件：大陆直连快且有 CORS 头，是本站数据拉取的主链路。
+ *  cdn.jsdelivr.net 会缓存文件，先经 purge.jsdelivr.net 触发刷新（返回 statuses），
+ *  再拉取即可拿到分支最新提交的内容（实测 purge 后立即生效）。purge 失败不影响读取。 */
+async function jsDelivrRaw(ref: RepoRef, path: string): Promise<string | null> {
+  const cdn = `https://cdn.jsdelivr.net/gh/${ref.owner}/${ref.repo}@${ref.branch}/${enc(path)}`;
+  // purge 是异步刷新，等 300ms 让边缘节点回源
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    try { await fetch(`https://purge.jsdelivr.net/gh/${ref.owner}/${ref.repo}@${ref.branch}/${enc(path)}`, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+    await new Promise((r) => setTimeout(r, 300));
+  } catch { /* purge 失败继续读缓存 */ }
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    let res: Response;
+    try { res = await fetch(cdn, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text && text.trim().length > 20 ? text : null;
+  } catch { return null; }
+}
+
+/** 读取 GitHub 仓库某个文件的原始内容：jsDelivr CDN（主）→ raw 直连 → CORS 代理（兜底） */
 async function ghRaw(ref: RepoRef, path: string): Promise<string | null> {
+  // 1. jsDelivr CDN：有 CORS 头，大陆网络直连稳定
+  const viaCdn = await jsDelivrRaw(ref, path);
+  if (viaCdn) return viaCdn;
+  // 2. raw.githubusercontent.com 直连（海外网络可用）
   const url = `https://raw.githubusercontent.com/${ref.owner}/${ref.repo}/${ref.branch}/${path}`;
-  // 先尝试直连（多数浏览器/地区可直接访问 raw.githubusercontent.com）
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
@@ -75,7 +101,7 @@ async function ghRaw(ref: RepoRef, path: string): Promise<string | null> {
       if (text && text.trim().length > 20) return text;
     }
   } catch { /* 直连失败，走代理 */ }
-  // 兜底：经 CORS 代理拉取
+  // 3. CORS 代理兜底
   const proxied = await fetchRaw(url, 10000);
   return proxied && proxied.trim().length > 20 ? proxied : null;
 }
@@ -242,9 +268,13 @@ function parseTrendTxt(text: string): TechItem[] {
 }
 
 async function fetchTrend(): Promise<TechItem[] | null> {
-  const url = await resolveTrendTxt();
-  if (!url) return null;
-  const text = await fetchRaw(url);
+  const rawUrl = await resolveTrendTxt();
+  if (!rawUrl) return null;
+  // 主路径：把 raw URL 换算成仓库相对路径，经 jsDelivr CDN 拉取（大陆直连稳定）
+  const rel = rawUrl.replace(/^https:\/\/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/[^/]+\//, "");
+  let text = rel ? await jsDelivrRaw(TREND_REF, rel) : null;
+  // 兜底：原 raw URL 直连或经 CORS 代理
+  if (!text) text = await fetchRaw(rawUrl);
   if (!text) return null;
   const items = parseTrendTxt(text);
   return items.length ? items : null;
@@ -290,31 +320,12 @@ async function fetchWeibo(): Promise<TechItem[] | null> {
   } catch { return null; }
 }
 
-/** trend-scraper：Google 热搜关键词，data/google-trends.json，每 30 分钟更新。
- *  通过 GitHub Contents API 拉取（有 CORS 头，可靠性远高于 raw.githubusercontent.com + 代理）。 */
+/** trend-scraper：Google 热搜关键词，data/google-trends.json，Actions 每 30 分钟更新。
+ *  拉取链路：ghRaw 已内置 jsDelivr CDN（大陆直连）→ GitHub Contents API → raw/代理 多层回退。 */
 const GOOGLE_REF: RepoRef = { owner: "hengjuzhan", repo: "trend-scraper", branch: "main" };
-async function fetchGoogle(): Promise<TechItem[] | null> {
-  // 主路径：GitHub Contents API（有 CORS，无需代理）
-  const text = await ghContent(GOOGLE_REF, "data/google-trends.json");
-  if (text) {
-    try {
-      const j = JSON.parse(text);
-      const trends = Array.isArray(j.trends) ? j.trends : [];
-      const items = trends.slice(0, 20).map((t: any, i: number) => ({
-        id: String(i) + (t.googleTrend || i),
-        title: t.googleTrend || "",
-        desc: `搜索量 ${t.searchVolume || ""}${t.started ? " · " + t.started : ""}`,
-        url: t.googleTrend ? `https://www.google.com/search?q=${encodeURIComponent(t.googleTrend)}` : "",
-        meta: "趋势",
-      })).filter((x: TechItem) => x.title);
-      if (items.length) return items;
-    } catch { /* JSON 解析失败，走回退 */ }
-  }
-  // 回退：raw.githubusercontent.com 直连 + CORS 代理
-  const raw = await ghRaw(GOOGLE_REF, "data/google-trends.json");
-  if (!raw) return null;
+function parseGoogleTrends(text: string): TechItem[] {
   try {
-    const j = JSON.parse(raw);
+    const j = JSON.parse(text);
     const trends = Array.isArray(j.trends) ? j.trends : [];
     return trends.slice(0, 20).map((t: any, i: number) => ({
       id: String(i) + (t.googleTrend || i),
@@ -323,11 +334,43 @@ async function fetchGoogle(): Promise<TechItem[] | null> {
       url: t.googleTrend ? `https://www.google.com/search?q=${encodeURIComponent(t.googleTrend)}` : "",
       meta: "趋势",
     })).filter((x: TechItem) => x.title);
-  } catch { return null; }
+  } catch { return []; }
+}
+async function fetchGoogle(): Promise<TechItem[] | null> {
+  // 主路径：jsDelivr CDN / raw 直连 / 代理（ghRaw 内置多层回退）
+  const text = await ghRaw(GOOGLE_REF, "data/google-trends.json");
+  if (text) {
+    const items = parseGoogleTrends(text);
+    if (items.length) return items;
+  }
+  // 回退：GitHub Contents API（有 CORS 头，正确处理 UTF-8）
+  const viaApi = await ghContent(GOOGLE_REF, "data/google-trends.json");
+  if (viaApi) {
+    const items = parseGoogleTrends(viaApi);
+    if (items.length) return items;
+  }
+  return null;
 }
 
 /** github-trending-scope 数据（回退用），根目录 data.json，每天 Actions 自动更新 */
 const GHTREND_REF: RepoRef = { owner: "hengjuzhan", repo: "github-trending-scope", branch: "main" };
+function parseGhTrendData(text: string): TechItem[] {
+  try {
+    const j = JSON.parse(text);
+    const cats: Record<string, { zh: string }> = j.cats || {};
+    const list = (j.boards?.daily?.all || []).slice(0, 20);
+    return list.map((r: any, i: number) => {
+      const catZh = cats[r.cat]?.zh || "Trending";
+      return {
+        id: String(i) + r.full,
+        title: r.full || "",
+        desc: `${catZh} · ★${r.stars ?? ""}k · 今日 ${r.today ?? ""}`,
+        url: r.full ? `https://github.com/${r.full}` : "",
+        meta: catZh,
+      };
+    }).filter((x: TechItem) => x.title && x.url);
+  } catch { return []; }
+}
 async function fetchGhTrend(): Promise<TechItem[] | null> {
   // 主路径：GitHub Search API 搜近 7 天创建的高星仓库（有 CORS，无需代理，60 次/小时匿名配额）
   const d = new Date();
@@ -359,44 +402,20 @@ async function fetchGhTrend(): Promise<TechItem[] | null> {
     // 429 限流时静默回退
   } catch { /* 网络失败，走回退 */ }
 
-  // 回退 1：GitHub Contents API 拉取 github-trending-scope 的 data.json（有 CORS）
-  const text = await ghContent(GHTREND_REF, "data.json");
+  // 回退 1：jsDelivr CDN / raw 直连拉取 github-trending-scope 的 data.json（ghRaw 内置多层回退）
+  const text = await ghRaw(GHTREND_REF, "data.json");
   if (text) {
-    try {
-      const j = JSON.parse(text);
-      const cats: Record<string, { zh: string }> = j.cats || {};
-      const list = (j.boards?.daily?.all || []).slice(0, 20);
-      return list.map((r: any, i: number) => {
-        const catZh = cats[r.cat]?.zh || "Trending";
-        return {
-          id: String(i) + r.full,
-          title: r.full || "",
-          desc: `${catZh} · ★${r.stars ?? ""}k · 今日 ${r.today ?? ""}`,
-          url: r.full ? `https://github.com/${r.full}` : "",
-          meta: catZh,
-        };
-      }).filter((x: TechItem) => x.title && x.url);
-    } catch { /* JSON 解析失败 */ }
+    const items = parseGhTrendData(text);
+    if (items.length) return items;
   }
 
-  // 回退 2：raw.githubusercontent.com 直连（旧路径）
-  const raw = await ghRaw(GHTREND_REF, "data.json");
-  if (!raw) return null;
-  try {
-    const j = JSON.parse(raw);
-    const cats: Record<string, { zh: string }> = j.cats || {};
-    const list = (j.boards?.daily?.all || []).slice(0, 20);
-    return list.map((r: any, i: number) => {
-      const catZh = cats[r.cat]?.zh || "Trending";
-      return {
-        id: String(i) + r.full,
-        title: r.full || "",
-        desc: `${catZh} · ★${r.stars ?? ""}k · 今日 ${r.today ?? ""}`,
-        url: r.full ? `https://github.com/${r.full}` : "",
-        meta: catZh,
-      };
-    }).filter((x: TechItem) => x.title && x.url);
-  } catch { return null; }
+  // 回退 2：GitHub Contents API（有 CORS 头）
+  const viaApi = await ghContent(GHTREND_REF, "data.json");
+  if (viaApi) {
+    const items = parseGhTrendData(viaApi);
+    if (items.length) return items;
+  }
+  return null;
 }
 
 /* ---------------- 标签配置 ---------------- */
@@ -492,6 +511,8 @@ export function TechNewsBoard() {
     try {
       list = await loadByKind(conf.kind);
     } catch { list = null; }
+    // 乱码防护：编码错误的数据（含 U+FFFD 替换符）视为拉取失败，不覆盖现有内容、不入缓存
+    if (list && list.some((it) => it.title.includes("\uFFFD"))) list = null;
     if (list && list.length) {
       setItems((old) => {
         const next = { ...old, [key]: list! };
