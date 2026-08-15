@@ -5,6 +5,7 @@ import type { Announcement, Category, LinkItem, MusicSource, Overlay, Promo, Set
 import { fuzzyScore, todayStr, uid } from "./utils";
 import { isSupabaseConfigured, visitsReset, textsGet, textsSet, siteDataGet, siteDataSet } from "./supabase";
 import { getAdminHash, isAdminSession } from "../components/admin/AdminLogin";
+import { toast } from "../components/widgets/Toast";
 
 const LS_OVERLAY = "mechanav.data.v1";
 const LS_SET = "mechanav.settings.v1";
@@ -177,10 +178,11 @@ async function doPushTexts() {
   if (!isSupabaseConfigured(cfg) || !isAdminSession()) return;
   const token = getAdminHash();
   if (!token) return;
-  await textsSet(cfg, state.texts, token);
+  const ok = await textsSet(cfg, state.texts, token);
+  if (!ok) toast("文案云端同步失败，请检查管理员登录与数据库配置", "warn");
 }
 
-/** 进入站点时从云端拉取文案覆盖层（云端为跨设备权威源，覆盖本地旧值） */
+/** 进入站点时从云端拉取文案覆盖层（云端为跨设备权威源，覆盖本地旧值）；云端为空且已登录管理员时自动把本地文案推送上云 */
 export async function syncTextsFromCloud(): Promise<void> {
   const cfg = getSettings().supabase;
   if (!isSupabaseConfigured(cfg)) return;
@@ -188,56 +190,61 @@ export async function syncTextsFromCloud(): Promise<void> {
   if (db && Object.keys(db).length > 0) {
     state = { ...state, texts: { ...db } };
     textsEmit(); emit();
+  } else if (isAdminSession() && getAdminHash() && Object.keys(state.texts).length > 0) {
+    pushTextsToCloud();
   }
 }
 
 /* ---- 全站数据云端同步：管理员编辑分类/站点/公告/推广位/音乐源后推送到数据库，各设备进入时拉取 ---- */
 let siteDataSyncTimer: number | null = null;
-function pushSiteDataToCloud() {
+function pushSiteDataToCloud(notify = false) {
   if (siteDataSyncTimer !== null) return;
   siteDataSyncTimer = window.setTimeout(() => {
     siteDataSyncTimer = null;
-    void doPushSiteData();
+    void doPushSiteData(notify);
   }, 800);
 }
-async function doPushSiteData() {
+async function doPushSiteData(notify = false) {
   const cfg = getSettings().supabase;
   if (!isSupabaseConfigured(cfg) || !isAdminSession()) return;
   const token = getAdminHash();
   if (!token) return;
-  await siteDataSet(cfg, {
+  const ok = await siteDataSet(cfg, {
     categories: state.categories,
     links: state.links,
     announcements: state.announcements,
     promos: state.promos,
     musicSources: state.musicSources,
   }, token);
+  if (notify && ok) toast("全站数据已同步到云端", "ok");
+  else if (!ok) toast("全站数据云端同步失败，请检查管理员登录与数据库配置", "warn");
 }
 
-/** 进入站点时从云端拉取全站数据（云端为跨设备权威源，覆盖本地旧值） */
+/** 进入站点时从云端拉取全站数据（云端为跨设备权威源，覆盖本地旧值）；云端为空且已登录管理员时自动把本地全量推送上云 */
 export async function syncSiteDataFromCloud(): Promise<void> {
   const cfg = getSettings().supabase;
   if (!isSupabaseConfigured(cfg)) return;
   const db = await siteDataGet(cfg);
-  if (db && typeof db === "object") {
-    const cats = Array.isArray(db.categories) ? (db.categories as Category[]) : null;
-    const lks = Array.isArray(db.links) ? (db.links as LinkItem[]) : null;
-    const anns = Array.isArray(db.announcements) ? (db.announcements as Announcement[]) : null;
-    const prs = Array.isArray(db.promos) ? (db.promos as Promo[]) : null;
-    const mss = Array.isArray(db.musicSources) ? (db.musicSources as MusicSource[]) : null;
-    if (cats || lks || anns || prs || mss) {
-      state = {
-        ...state,
-        categories: cats ?? state.categories,
-        links: lks ?? state.links,
-        announcements: anns ?? state.announcements,
-        promos: prs ?? state.promos,
-        musicSources: mss ?? state.musicSources,
-      };
-      // 同步写入 localStorage 持久化
-      flushOverlayWrite();
-      emit();
-    }
+  const cats = db && Array.isArray(db.categories) ? (db.categories as Category[]) : null;
+  const lks = db && Array.isArray(db.links) ? (db.links as LinkItem[]) : null;
+  const anns = db && Array.isArray(db.announcements) ? (db.announcements as Announcement[]) : null;
+  const prs = db && Array.isArray(db.promos) ? (db.promos as Promo[]) : null;
+  const mss = db && Array.isArray(db.musicSources) ? (db.musicSources as MusicSource[]) : null;
+  if (cats || lks || anns || prs || mss) {
+    state = {
+      ...state,
+      categories: cats ?? state.categories,
+      links: lks ?? state.links,
+      announcements: anns ?? state.announcements,
+      promos: prs ?? state.promos,
+      musicSources: mss ?? state.musicSources,
+    };
+    // 同步写入 localStorage 持久化
+    flushOverlayWrite();
+    emit();
+  } else if (isAdminSession() && getAdminHash()) {
+    // 云端尚无数据：管理员设备自动初始化，把本地全量数据推送上云，其他设备即可拉取
+    pushSiteDataToCloud(true);
   }
 }
 
@@ -373,3 +380,11 @@ export function searchAll(q: string): SearchHit[] {
   }
   return hits.sort((a, b) => b.score - a.score).slice(0, 12);
 }
+
+// 管理员登录成功后立即重新同步：拉取云端最新数据；云端为空时自动把本机数据推送上云
+window.addEventListener("mecha:adminsession", (ev) => {
+  if ((ev as CustomEvent<{ on?: boolean }>).detail?.on) {
+    void syncTextsFromCloud();
+    void syncSiteDataFromCloud();
+  }
+});
