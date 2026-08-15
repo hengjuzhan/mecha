@@ -343,7 +343,9 @@ export function SystemSection() {
     if (!window.confirm("确定清除所有设备共享的自定义背景吗？包括云端记录，此操作不可恢复。")) return;
     setSettings({ bgImage: "", bgTone: "dark" });
     const ok = await cloud.bg.clear(getAdminHash());
-    toast(ok ? "已清除共享背景" : "本地已清除，但云端同步失败，请重试", ok ? "ok" : "warn");
+    // 令牌不一致是清除失败的主因：多设备设过不同口令或本地重置过数据会导致云端令牌漂移，
+    // 需在数据库执行 delete from settings where key='admin' 后重新登录即可自动重新绑定
+    toast(ok ? "已清除共享背景" : "本地已清除，但云端同步失败：管理员令牌与云端不一致，请在系统页查看恢复方法", ok ? "ok" : "warn");
   };
 
   const changePw = async () => {
@@ -455,6 +457,11 @@ export function SystemSection() {
             清除所有设备共享的自定义背景{cloud.configured() ? " · 云端记录同步清空" : " · 本地模式"}
           </span>
         </div>
+        <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--c-dim)]">
+          令牌恢复：若云端操作持续提示「管理员令牌与云端不一致」（多设备设过不同口令或本地重置过数据所致），
+          在 Supabase SQL Editor 执行 <code className="text-[var(--c-cyan)]">delete from settings where key='admin';</code>
+          再重新执行清除，即可自动重新绑定本机令牌。
+        </p>
       </div>
 
       <div className="mt-3 rounded-sm border border-[var(--c-border)] p-3">
