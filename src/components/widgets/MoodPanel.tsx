@@ -171,7 +171,7 @@ export function MoodPanel() {
               key={img}
               src={img}
               alt="表情包"
-              className="h-full w-full object-cover"
+              className={`h-full w-full ${img.includes("ChineseBQB") ? "object-contain" : "object-cover"}`}
               loading="lazy"
               onError={() => {
                 imgAtt.current += 1;
