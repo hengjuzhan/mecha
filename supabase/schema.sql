@@ -229,6 +229,18 @@ $$;
 revoke all on function bg_quota_consume() from public;
 grant execute on function bg_quota_consume() to anon, authenticated;
 
+-- 只读查询今日剩余次数（不消耗）
+create or replace function bg_quota_remaining()
+returns table (remaining int)
+language sql
+security definer stable
+as $$
+  select greatest(0, 10 - coalesce((select used from bg_quota where day = current_date), 0));
+$$;
+
+revoke all on function bg_quota_remaining() from public;
+grant execute on function bg_quota_remaining() to anon, authenticated;
+
 alter table bg_quota enable row level security;
 
 -- ============================================================
@@ -250,6 +262,13 @@ alter table music_sources enable row level security;
 alter table settings enable row level security;
 alter table visits enable row level security;
 
+drop policy if exists cat_read on categories;
+drop policy if exists link_read on links;
+drop policy if exists ann_read on announcements;
+drop policy if exists promo_read on promos;
+drop policy if exists msrc_read on music_sources;
+drop policy if exists visits_read on visits;
+drop policy if exists settings_admin_read on settings;
 create policy cat_read on categories for select using (true);
 create policy link_read on links for select using (true);
 create policy ann_read on announcements for select using (true);
@@ -258,6 +277,12 @@ create policy msrc_read on music_sources for select using (true);
 create policy visits_read on visits for select using (true);
 create policy settings_admin_read on settings for select using (auth.role() = 'authenticated');
 
+drop policy if exists cat_write on categories;
+drop policy if exists link_write on links;
+drop policy if exists ann_write on announcements;
+drop policy if exists promo_write on promos;
+drop policy if exists msrc_write on music_sources;
+drop policy if exists settings_admin_write on settings;
 create policy cat_write on categories for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 create policy link_write on links for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 create policy ann_write on announcements for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');

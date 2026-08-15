@@ -49,3 +49,24 @@ export async function consumeBgQuota(): Promise<{ ok: boolean; remaining: number
   writeLocal({ date: today, used: used + 1 });
   return { ok: true, remaining: DAILY_MAX - used - 1 };
 }
+
+/**
+ * 异步查询今日剩余上传次数（优先数据库共享配额，未配置时回退本地）。
+ * 返回 null 表示无法确定（如后端不可用）。
+ */
+export async function bgQuotaRemainingAsync(): Promise<number | null> {
+  if (isAdminSession()) return Infinity;
+  const cfg = getSettings().supabase;
+  if (isSupabaseConfigured(cfg)) {
+    try {
+      const d = await fetcht<{ remaining?: number }[]>(
+        `${cfg.url.replace(/\/$/, "")}/rest/v1/rpc/bg_quota_remaining`,
+        6000,
+        { method: "POST", headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" }, body: "{}" },
+      );
+      const r = Array.isArray(d) && d[0] ? d[0].remaining : undefined;
+      if (typeof r === "number") return r;
+    } catch { /* 回退本地 */ }
+  }
+  return bgQuotaRemaining();
+}

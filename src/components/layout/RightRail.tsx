@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, t, getSettings, setSettings, useSettings } from "../../lib/dataService";
 import { dateSeed, mulberry } from "../../lib/utils";
 import { Modal } from "../widgets/Modal";
 import { GuestBook } from "../widgets/GuestBook";
 import { guestbookStats } from "../../lib/guestbook";
-import { consumeBgQuota, bgQuotaRemaining } from "../../lib/bgQuota";
+import { consumeBgQuota, bgQuotaRemaining, bgQuotaRemainingAsync } from "../../lib/bgQuota";
+import { isSupabaseConfigured } from "../../lib/supabase";
 import { detectBgTone, compressImage } from "../../lib/imageTone";
 import { isAdminSession } from "../admin/AdminLogin";
 import { toast } from "../widgets/Toast";
@@ -43,8 +44,15 @@ export function RightRail() {
   const [bgBusy, setBgBusy] = useState(false);
   const bgFileRef = useRef<HTMLInputElement>(null);
   const s = getSettings();
-  const remaining = bgQuotaRemaining();
+  const [remaining, setRemaining] = useState(bgQuotaRemaining());
   const isAdmin = isAdminSession();
+
+  // 挂载时若已配置数据库，展示共享配额剩余次数
+  useEffect(() => {
+    if (!isAdminSession() && isSupabaseConfigured(getSettings().supabase)) {
+      void bgQuotaRemainingAsync().then((r) => { if (r !== null) setRemaining(r); });
+    }
+  }, []);
 
   // 上传/设置背景：先消耗配额（管理员不限），再检测深浅切换文字颜色
   const applyBg = async (src: string) => {
@@ -55,6 +63,7 @@ export function RightRail() {
       if (!q.ok) { toast(`今日上传次数已用尽（每日共 10 次），明天再来吧`, "warn"); return; }
       const tone = await detectBgTone(src);
       setSettings({ bgImage: src, bgTone: tone });
+      setRemaining(q.remaining); // 同步共享配额剩余次数
       toast(isAdmin ? "背景已更新（管理员不限次数）" : `背景已更新，今日剩余 ${q.remaining} 次`, "ok");
     } finally {
       setBgBusy(false);
