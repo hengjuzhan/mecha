@@ -60,7 +60,7 @@ export function RightRail() {
     });
   }, [isAdmin]);
 
-  // 上传/设置背景：先消耗配额（管理员不限），再检测深浅切换文字颜色
+  // 上传/设置背景：先消耗配额（管理员不限），再压缩上传 Storage 拿小 URL，最后写数据库实现全设备同步
   const applyBg = async (src: string) => {
     if (!s.homeTransparent) { toast("请先开启「背景透明化」", "warn"); return; }
     setBgBusy(true);
@@ -68,10 +68,22 @@ export function RightRail() {
       const q = await cloud.bg.quotaConsume(isAdmin);
       if (!q.ok) { toast(`今日上传次数已用尽（每日共 10 次），明天再来吧`, "warn"); return; }
       const tone = await detectBgTone(src);
-      setSettings({ bgImage: src, bgTone: tone });
-      await cloud.bg.set(src, tone); // 写入数据库，实现所有设备同步
+      // Storage 二进制上传（移动网络下比 base64 走 JSON RPC 可靠得多）；失败回退 base64 直写
+      const url = await cloud.bg.upload(src);
+      let syncOk: boolean;
+      if (url) {
+        setSettings({ bgImage: url, bgTone: tone });
+        syncOk = await cloud.bg.set(url, tone);
+      } else {
+        setSettings({ bgImage: src, bgTone: tone });
+        syncOk = await cloud.bg.set(src, tone);
+      }
       setRemaining(q.remaining); // 同步共享配额剩余次数
-      toast(isAdmin ? "背景已更新（管理员不限次数）" : `背景已更新，今日剩余 ${q.remaining} 次`, "ok");
+      if (syncOk) {
+        toast(isAdmin ? "背景已更新并同步所有设备（管理员不限次数）" : `背景已更新并同步所有设备，今日剩余 ${q.remaining} 次`, "ok");
+      } else {
+        toast("背景已在本机生效，但云端同步失败，其他设备暂不可见", "warn");
+      }
     } finally {
       setBgBusy(false);
     }

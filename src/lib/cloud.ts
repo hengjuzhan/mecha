@@ -139,11 +139,51 @@ async function textsSet(texts: Record<string, string>, token: string): Promise<b
 export interface BgData { bgImage: string; bgTone: "dark" | "light" }
 
 async function bgGet(): Promise<BgData | null> {
-  const r = await rpc<{ bg_image: string; bg_tone: string }[]>("bg_get", {}, 6000);
+  const r = await rpc<{ bg_image: string; bg_tone: string }[]>("bg_get", {}, 10000);
   const row = Array.isArray(r) ? r[0] : undefined;
   if (!row) return null;
   return { bgImage: row.bg_image || "", bgTone: row.bg_tone === "light" ? "light" : "dark" };
 }
+
+/**
+ * 把 dataURL 图片上传到 Storage 公开桶，返回公开 URL。
+ * 大 base64 直塞 JSON RPC 在移动网络下易超时导致"本机可见、其他设备不同步"，
+ * Storage 二进制上传（比 base64 小 33%）+ 数据库只存小 URL 是可靠路径。
+ */
+async function bgUpload(dataUrl: string): Promise<string | null> {
+  const cfg = currentCfg();
+  if (!cfg) return null;
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(dataUrl);
+  if (!m) return null;
+  const ext = m[1] === "image/png" ? "png" : m[1] === "image/webp" ? "webp" : "jpg";
+  const name = `bg-${Date.now()}.${ext}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const bin = atob(m[2]);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const base = cfg.url.replace(/\/$/, "");
+    // 文件名带时间戳天然唯一，用普通 POST 创建；勿加 x-upsert（upsert 路径需 SELECT 权限，匿名会被 RLS 拒绝）
+    const res = await fetch(`${base}/storage/v1/object/bg/${name}`, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`,
+        "Content-Type": m[1],
+      },
+      body: buf,
+    });
+    if (!res.ok) return null;
+    return `${base}/storage/v1/object/public/bg/${name}`;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function bgSet(image: string, tone: string): Promise<boolean> {
   return rpcOk("bg_set", { p_image: image, p_tone: tone }, 10000);
 }
@@ -216,7 +256,7 @@ export const cloud = {
   visits: { bump: visitsBump, get: visitsGet, cached: visitsCached, reset: visitsReset },
   siteData: { get: siteDataGet, set: siteDataSet },
   texts: { get: textsGet, set: textsSet },
-  bg: { get: bgGet, set: bgSet, clear: bgClear, quotaConsume: bgQuotaConsume, quotaRemaining: bgQuotaRemaining },
+  bg: { get: bgGet, upload: bgUpload, set: bgSet, clear: bgClear, quotaConsume: bgQuotaConsume, quotaRemaining: bgQuotaRemaining },
   guest: { list: guestList, add: guestAdd, del: guestDelete, clear: guestClear },
 };
 

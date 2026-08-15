@@ -391,8 +391,24 @@ alter table visits enable row level security;
 alter table guest_messages enable row level security;
 alter table bg_quota enable row level security;
 alter table site_bg enable row level security;
-alter table categories enable row level security;
-alter table links enable row level security;
-alter table announcements enable row level security;
-alter table promos enable row level security;
-alter table music_sources enable row level security;
+
+-- ============ 背景图片 Storage 公开桶 ============
+-- 大 base64 直塞 JSON RPC 在移动网络下超时导致"本机可见、其他设备不同步"，
+-- 改为：图片二进制存 Storage（公开读），site_bg 只存小 URL。
+-- 注意：前端上传必须用普通 POST 创建（文件名 bg-{ts} 天然唯一），
+-- 勿带 x-upsert 头 —— upsert 路径需要 SELECT 权限做存在性检查，匿名会被 RLS 拒绝。
+insert into storage.buckets (id, name, public)
+values ('bg', 'bg', true)
+on conflict (id) do update set public = true;
+
+-- 匿名可上传，仅限 bg- 前缀图片（文件名由前端生成，配合每日配额防滥用）
+drop policy if exists "bg_bucket_insert" on storage.objects;
+create policy "bg_bucket_insert" on storage.objects
+for insert to anon, authenticated
+with check (bucket_id = 'bg' and storage.filename(name) like 'bg-%');
+
+drop policy if exists "bg_bucket_update" on storage.objects;
+create policy "bg_bucket_update" on storage.objects
+for update to anon, authenticated
+using (bucket_id = 'bg')
+with check (bucket_id = 'bg');
