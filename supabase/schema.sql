@@ -112,9 +112,9 @@ begin
     x(id text, no int, name text, "nameEn" text, icon text, subcats jsonb, sound text);
 
   insert into links (id, no, name, url, description, category, sub, badge, icon, placeholder)
-  select x.id, x.no, x.name, x.url, x.desc, x.cat, x.sub, x.badge, x.icon, coalesce(x.placeholder, false)
+  select x.id, x.no, x.name, x.url, x."desc", x."cat", x."sub", x."badge", x."icon", coalesce(x."placeholder", false)
   from jsonb_to_recordset(payload->'links') as
-    x(id text, no text, name text, url text, desc text, cat text, sub text, badge text, icon text, placeholder boolean);
+    x(id text, no text, name text, url text, "desc" text, "cat" text, "sub" text, "badge" text, "icon" text, "placeholder" boolean);
 
   insert into announcements (id, no, kind, title, content)
   select x.id, x.no, x.kind, x.title, x.content
@@ -122,9 +122,9 @@ begin
     x(id text, no text, kind text, title text, content text, time text);
 
   insert into promos (id, icon, title, description, link, color)
-  select x.id, x.icon, x.title, x.desc, x.link, x.color
+  select x.id, x.icon, x.title, x."desc", x.link, x.color
   from jsonb_to_recordset(payload->'promos') as
-    x(id text, icon text, title text, desc text, link text, color text);
+    x(id text, icon text, title text, "desc" text, link text, color text);
 
   insert into music_sources (id, kind, name, base_url, enabled, sort)
   select x.id, x.kind, x.name, x."baseUrl", coalesce(x.enabled, true), row_number() over ()
