@@ -414,6 +414,12 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   .ph-deck .ph-card span.text-\[11px\] { font-size: 12px !important; }
   .ph-deck .ph-card span.text-\[8px\] { font-size: 9px !important; }
 }
+/* 手机窄屏：占位卡简化为单张干净卡片，去掉旋转堆叠，避免折叠/挤压变形 */
+@media (max-width: 768px) {
+  .ph-deck .ph-1, .ph-deck .ph-2 { display: none; }
+  .ph-deck .ph-3 { transform: none; }
+  .ph-deck:hover .ph-1, .ph-deck:hover .ph-2, .ph-deck:hover .ph-3 { transform: none; }
+}
 
 /* ---- 平板（<1280px）：拖拽手柄加大触控热区，便于触屏自由缩放 ---- */
 @media (max-width: 1279px) {
