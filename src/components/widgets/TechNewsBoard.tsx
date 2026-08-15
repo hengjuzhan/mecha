@@ -124,7 +124,11 @@ async function ghContent(ref: RepoRef, path: string): Promise<string | null> {
     if (!res.ok) return null;
     const j = await res.json() as { content?: string; encoding?: string };
     if (j.content && j.encoding === "base64") {
-      return atob(j.content.replace(/\s/g, ""));
+      // atob 解码为 Latin-1 二进制串，中文等多字节字符必须经 TextDecoder 转 UTF-8，否则乱码
+      const bin = atob(j.content.replace(/\s/g, ""));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
     }
     return null;
   } catch { return null; }
@@ -287,8 +291,7 @@ async function fetchWeibo(): Promise<TechItem[] | null> {
 }
 
 /** trend-scraper：Google 热搜关键词，data/google-trends.json，每 30 分钟更新。
- *  优先通过 GitHub Contents API 拉取（有 CORS 头，可靠性远高于 raw.githubusercontent.com + 代理），
- *  失败时回退 Google Trends RSS。 */
+ *  通过 GitHub Contents API 拉取（有 CORS 头，可靠性远高于 raw.githubusercontent.com + 代理）。 */
 const GOOGLE_REF: RepoRef = { owner: "hengjuzhan", repo: "trend-scraper", branch: "main" };
 async function fetchGoogle(): Promise<TechItem[] | null> {
   // 主路径：GitHub Contents API（有 CORS，无需代理）
@@ -305,27 +308,9 @@ async function fetchGoogle(): Promise<TechItem[] | null> {
         meta: "趋势",
       })).filter((x: TechItem) => x.title);
       if (items.length) return items;
-    } catch { /* JSON 解析失败，继续走兜底 */ }
+    } catch { /* JSON 解析失败，走回退 */ }
   }
-  // 兜底：Google Daily Trends RSS（全球英文热搜）
-  const rss = await fetchRaw("https://trends.google.com/trends/trendingsearches/daily/rss?geo=US", 10000);
-  if (!rss) return null;
-  const items: TechItem[] = [];
-  const re = /<title>([^<]+)<\/title>[\s\S]*?<ht:approx_traffic>([^<]+)<\/ht:approx_traffic>[\s\S]*?<ht:news_item_url>([^<]+)<\/ht:news_item_url>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(rss)) !== null) {
-    const title = m[1].trim();
-    if (title === "Daily Search Trends") continue;
-    items.push({
-      id: `g${items.length}`,
-      title,
-      desc: `搜索量 ${m[2]}`,
-      url: m[3] || `https://www.google.com/search?q=${encodeURIComponent(title)}`,
-      meta: "Google",
-    });
-  }
-  if (items.length) return items.slice(0, 20);
-  // 最后回退：用 ghRaw 直连 raw.githubusercontent.com（旧路径）
+  // 回退：raw.githubusercontent.com 直连 + CORS 代理
   const raw = await ghRaw(GOOGLE_REF, "data/google-trends.json");
   if (!raw) return null;
   try {
