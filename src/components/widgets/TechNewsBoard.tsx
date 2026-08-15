@@ -24,8 +24,8 @@ interface TabConf {
   fallback: TechItem[];
 }
 
-const LS_TECH = "mechanav.technews.v4";
-const UPDATE_MS = 15 * 60 * 1000; // 每 15 分钟自动更新，比数据源频率高以保证及时
+const LS_TECH = "mechanav.technews.v5";
+const UPDATE_MS = 15 * 60 * 1000; // 每 15 分钟自动更新
 
 const enc = (s: string) => encodeURIComponent(s);
 
@@ -110,6 +110,24 @@ async function fetchRaw(url: string, ms = 12000): Promise<string> {
     } catch { /* 尝试下一个代理 */ }
   }
   return "";
+}
+
+/** 通过 GitHub Contents API 读取文件内容（有 CORS 头，比 raw.githubusercontent.com 更可靠）。
+ *  返回 base64 解码后的文本，失败返回 null。 */
+async function ghContent(ref: RepoRef, path: string): Promise<string | null> {
+  const url = `https://api.github.com/repos/${ref.owner}/${ref.repo}/contents/${enc(path)}?ref=${ref.branch}`;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10000);
+    let res: Response;
+    try { res = await fetch(url, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+    if (!res.ok) return null;
+    const j = await res.json() as { content?: string; encoding?: string };
+    if (j.content && j.encoding === "base64") {
+      return atob(j.content.replace(/\s/g, ""));
+    }
+    return null;
+  } catch { return null; }
 }
 
 /** 从目录中挑出符合日期命名的最新文件（如 2026-08-14.json / 2026-08-14-processed.json） */
@@ -268,13 +286,50 @@ async function fetchWeibo(): Promise<TechItem[] | null> {
   } catch { return null; }
 }
 
-/** trend-scraper：Google 热搜关键词，data/google-trends.json，每 30 分钟更新 */
+/** trend-scraper：Google 热搜关键词，data/google-trends.json，每 30 分钟更新。
+ *  优先通过 GitHub Contents API 拉取（有 CORS 头，可靠性远高于 raw.githubusercontent.com + 代理），
+ *  失败时回退 Google Trends RSS。 */
 const GOOGLE_REF: RepoRef = { owner: "hengjuzhan", repo: "trend-scraper", branch: "main" };
 async function fetchGoogle(): Promise<TechItem[] | null> {
-  const text = await ghRaw(GOOGLE_REF, "data/google-trends.json");
-  if (!text) return null;
+  // 主路径：GitHub Contents API（有 CORS，无需代理）
+  const text = await ghContent(GOOGLE_REF, "data/google-trends.json");
+  if (text) {
+    try {
+      const j = JSON.parse(text);
+      const trends = Array.isArray(j.trends) ? j.trends : [];
+      const items = trends.slice(0, 20).map((t: any, i: number) => ({
+        id: String(i) + (t.googleTrend || i),
+        title: t.googleTrend || "",
+        desc: `搜索量 ${t.searchVolume || ""}${t.started ? " · " + t.started : ""}`,
+        url: t.googleTrend ? `https://www.google.com/search?q=${encodeURIComponent(t.googleTrend)}` : "",
+        meta: "趋势",
+      })).filter((x: TechItem) => x.title);
+      if (items.length) return items;
+    } catch { /* JSON 解析失败，继续走兜底 */ }
+  }
+  // 兜底：Google Daily Trends RSS（全球英文热搜）
+  const rss = await fetchRaw("https://trends.google.com/trends/trendingsearches/daily/rss?geo=US", 10000);
+  if (!rss) return null;
+  const items: TechItem[] = [];
+  const re = /<title>([^<]+)<\/title>[\s\S]*?<ht:approx_traffic>([^<]+)<\/ht:approx_traffic>[\s\S]*?<ht:news_item_url>([^<]+)<\/ht:news_item_url>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(rss)) !== null) {
+    const title = m[1].trim();
+    if (title === "Daily Search Trends") continue;
+    items.push({
+      id: `g${items.length}`,
+      title,
+      desc: `搜索量 ${m[2]}`,
+      url: m[3] || `https://www.google.com/search?q=${encodeURIComponent(title)}`,
+      meta: "Google",
+    });
+  }
+  if (items.length) return items.slice(0, 20);
+  // 最后回退：用 ghRaw 直连 raw.githubusercontent.com（旧路径）
+  const raw = await ghRaw(GOOGLE_REF, "data/google-trends.json");
+  if (!raw) return null;
   try {
-    const j = JSON.parse(text);
+    const j = JSON.parse(raw);
     const trends = Array.isArray(j.trends) ? j.trends : [];
     return trends.slice(0, 20).map((t: any, i: number) => ({
       id: String(i) + (t.googleTrend || i),
@@ -286,13 +341,64 @@ async function fetchGoogle(): Promise<TechItem[] | null> {
   } catch { return null; }
 }
 
-/** github-trending-scope：GitHub Trending 数据，根目录 data.json，完全免费，每天 Actions 自动更新（北京时间约 08:23） */
+/** github-trending-scope 数据（回退用），根目录 data.json，每天 Actions 自动更新 */
 const GHTREND_REF: RepoRef = { owner: "hengjuzhan", repo: "github-trending-scope", branch: "main" };
 async function fetchGhTrend(): Promise<TechItem[] | null> {
-  const text = await ghRaw(GHTREND_REF, "data.json");
-  if (!text) return null;
+  // 主路径：GitHub Search API 搜近 7 天创建的高星仓库（有 CORS，无需代理，60 次/小时匿名配额）
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  const dateStr = d.toISOString().split("T")[0];
+  const q = encodeURIComponent(`created:>${dateStr}`);
   try {
-    const j = JSON.parse(text);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10000);
+    let res: Response;
+    try {
+      res = await fetch(
+        `https://api.github.com/search/repositories?q=${q}&sort=stars&order=desc&per_page=25`,
+        { signal: ctrl.signal },
+      );
+    } finally { clearTimeout(t); }
+    if (res.ok) {
+      const j = await res.json() as { items?: { full_name: string; description: string; html_url: string; stargazers_count: number; language: string }[] };
+      if (j.items?.length) {
+        return j.items.map((r, i) => ({
+          id: `gh${i}${r.full_name}`,
+          title: r.full_name,
+          desc: (r.description || "").slice(0, 100) || "No description",
+          url: r.html_url,
+          meta: `★${r.stargazers_count.toLocaleString()}${r.language ? " · " + r.language : ""}`,
+        }));
+      }
+    }
+    // 429 限流时静默回退
+  } catch { /* 网络失败，走回退 */ }
+
+  // 回退 1：GitHub Contents API 拉取 github-trending-scope 的 data.json（有 CORS）
+  const text = await ghContent(GHTREND_REF, "data.json");
+  if (text) {
+    try {
+      const j = JSON.parse(text);
+      const cats: Record<string, { zh: string }> = j.cats || {};
+      const list = (j.boards?.daily?.all || []).slice(0, 20);
+      return list.map((r: any, i: number) => {
+        const catZh = cats[r.cat]?.zh || "Trending";
+        return {
+          id: String(i) + r.full,
+          title: r.full || "",
+          desc: `${catZh} · ★${r.stars ?? ""}k · 今日 ${r.today ?? ""}`,
+          url: r.full ? `https://github.com/${r.full}` : "",
+          meta: catZh,
+        };
+      }).filter((x: TechItem) => x.title && x.url);
+    } catch { /* JSON 解析失败 */ }
+  }
+
+  // 回退 2：raw.githubusercontent.com 直连（旧路径）
+  const raw = await ghRaw(GHTREND_REF, "data.json");
+  if (!raw) return null;
+  try {
+    const j = JSON.parse(raw);
     const cats: Record<string, { zh: string }> = j.cats || {};
     const list = (j.boards?.daily?.all || []).slice(0, 20);
     return list.map((r: any, i: number) => {
@@ -340,17 +446,17 @@ const TABS: TabConf[] = [
   {
     key: "google", label: "搜索趋势", icon: "⚡", kind: "google", ref: GOOGLE_REF, file: "data/google-trends.json",
     fallback: [
-      { id: "g1", title: "Google 热搜榜", desc: "trend-scraper 每 30 分钟抓取一次热搜关键词", url: "", meta: "趋势" },
-      { id: "g2", title: "等待首次抓取", desc: "可在 GitHub Actions 中手动触发", url: "", meta: "趋势" },
-      { id: "g3", title: "数据暂未同步", desc: "首次抓取完成后自动填充", url: "", meta: "趋势" },
+      { id: "g1", title: "Google 每日热搜", desc: "GitHub Actions 每 30 分钟抓取，前端经 GitHub API 拉取", url: "", meta: "趋势" },
+      { id: "g2", title: "数据加载中…", desc: "首次拉取或网络异常时显示此列表", url: "", meta: "趋势" },
+      { id: "g3", title: "若持续显示此列表", desc: "请检查浏览器网络或 Supabase 配置", url: "", meta: "趋势" },
     ],
   },
   {
     key: "ghtrend", label: "开源趋势", icon: "⎔", kind: "ghtrend", ref: GHTREND_REF, file: "data.json",
     fallback: [
-      { id: "t1", title: "GitHub Trending 榜单", desc: "github-trending-scope 每日自动抓取开源热度项目，完全免费", url: "", meta: "Trending" },
-      { id: "t2", title: "等待每日更新", desc: "每天北京时间约 08:23 自动刷新，无需任何 API Key", url: "", meta: "Trending" },
-      { id: "t3", title: "数据暂未同步", desc: "fork 仓库 Actions 首次运行后自动填充", url: "", meta: "Trending" },
+      { id: "t1", title: "GitHub Trending 开源热榜", desc: "实时搜索近 7 天高星仓库，无需任何 API Key", url: "", meta: "Trending" },
+      { id: "t2", title: "数据加载中…", desc: "首次拉取或网络异常时显示此列表", url: "", meta: "Trending" },
+      { id: "t3", title: "若持续显示此列表", desc: "请检查浏览器网络或 Supabase 配置", url: "", meta: "Trending" },
     ],
   },
 ];
