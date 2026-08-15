@@ -65,17 +65,23 @@ export function TopBar() {
     }
   }, []);
 
-  // 顶部人数：固定 60 秒 +1，单调不减，并持久化到设置，刷新后从上次值继续递增（不回退）
+  // 顶部人数：随机间隔（约 0.5~2.5 分钟）+ 随机人数（每次 +1~+4），单调不减，
+  // 并持久化到设置，刷新后从上次值继续递增（不回退）
   useEffect(() => {
-    const iv = window.setInterval(() => {
+    let timer = 0;
+    const tick = () => {
       setVisits((v) => {
-        const next = { today: v.today + 1, total: v.total + 1 };
+        const inc = 1 + Math.floor(Math.random() * 4); // 每次随机增加 1~4 人
+        const next = { today: v.today + inc, total: v.total + inc };
         // 持久化到设置，刷新后从上次值继续递增，不回退
         setSettings({ visitsToday: next.today, visitsTotal: next.total, visitsDay: todayStr() });
         return next;
       });
-    }, 60000);
-    return () => window.clearInterval(iv);
+      // 下一次触发间隔随机：30s ~ 150s（约 0.5~2.5 分钟）
+      timer = window.setTimeout(tick, 30000 + Math.floor(Math.random() * 120000));
+    };
+    timer = window.setTimeout(tick, 30000 + Math.floor(Math.random() * 120000));
+    return () => window.clearTimeout(timer);
   }, []);
 
   const submit = () => {
