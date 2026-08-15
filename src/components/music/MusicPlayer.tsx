@@ -22,20 +22,6 @@ export function MusicPlayer({ variant }: { variant: "rail" | "sheet" }) {
   useEffect(() => { music.setVolume(s.musicVol); }, [s.musicVol]);
   useEffect(() => { curTimeRef.current = st.currentTime; }, [st.currentTime]);
 
-  // 音乐未启动时，用桌宠在页面正中央提示；不再在播放器内显示文字提示
-  // 延迟派发：确保 MechaPet 的监听器已注册，且此刻仍未开始播放（避免 autoplay 成功后误弹）
-  useEffect(() => {
-    if (st.started) return;
-    const t = window.setTimeout(() => {
-      if (!music.getState().started) {
-        window.dispatchEvent(new CustomEvent("mecha:pet-hint", {
-          detail: { text: "点击页面任意处开始播放音乐哦～ ♪", duration: 5000 },
-        }));
-      }
-    }, 600);
-    return () => window.clearTimeout(t);
-  }, [st.started]);
-
   // 8 向伸缩：四边 + 四角手柄，window 监听 pointer+mouse 保证真实拖拽可靠跟手
   const RESIZE_MIN = 200;
   const RESIZE_MAX_H = 620;

@@ -62,7 +62,7 @@ export function CategoryModule({ cat }: { cat: Category }) {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          <div className="mr-1 flex gap-1" role="tablist" aria-label={`${cat.name}子分类`}>
+          <div className="mr-1 flex max-w-full flex-wrap gap-1" role="tablist" aria-label={`${cat.name}子分类`}>
             {["全部", ...cat.subcats].map((s2) => (
               <button
                 key={s2}

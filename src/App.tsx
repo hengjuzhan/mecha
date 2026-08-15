@@ -155,7 +155,7 @@ function GlobalEffects() {
     return () => document.removeEventListener("click", click);
   }, []);
 
-  // 快捷键 Ctrl+K + 进入页面自动播放（autoplay 可能被拦截，交互时兜底）
+  // 快捷键 Ctrl+K + 进入页面自动播放（autoplay 可能被拦截，首次人机交互时兜底恢复）
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -163,17 +163,24 @@ function GlobalEffects() {
         document.getElementById("global-search")?.focus();
       }
     };
-    const onFirst = () => { void music.activate(); };
-    // 进入即尝试自动播放；被浏览器拦截则首次人机交互时兜底播放
+    // 首次交互（点击/触摸/滚动/按键）才被浏览器放行音频；反复触发 activate，
+    // 直到确认已在播放，才移除监听，避免"音源还没加载好导致第一次点击没反应、必须再点播放键"。
+    const EVENTS = ["pointerdown", "pointerup", "keydown", "touchstart", "mousedown", "click", "scroll"];
+    let done = false;
+    const cleanup = () => EVENTS.forEach((ev) => window.removeEventListener(ev, resume));
+    const resume = () => {
+      if (done) return;
+      void music.activate();
+      if (music.getState().playing) { done = true; cleanup(); }
+    };
+    EVENTS.forEach((ev) => window.addEventListener(ev, resume, { passive: true }));
+    // 进入即尝试自动播放；被浏览器拦截则靠上面的首次交互兜底
     const t = window.setTimeout(() => music.autoplay(), 800);
     window.addEventListener("keydown", key);
-    window.addEventListener("pointerdown", onFirst, { once: true });
-    window.addEventListener("keydown", onFirst, { once: true });
     return () => {
       window.clearTimeout(t);
+      cleanup();
       window.removeEventListener("keydown", key);
-      window.removeEventListener("pointerdown", onFirst);
-      window.removeEventListener("keydown", onFirst);
     };
   }, []);
 

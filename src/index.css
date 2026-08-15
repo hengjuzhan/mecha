@@ -193,7 +193,11 @@ section[id], [data-anchor] { scroll-margin-top: 86px; }
   overflow-y: hidden;
   overscroll-behavior-x: contain;
 }
-@media (max-width: 768px) { .card-strip { --cols: 3; height: 300px; } }
+/* 格子内容不撑破列宽，避免卡片/占位卡被挤出或裁剪 */
+.card-strip > * { min-width: 0; max-width: 100%; }
+@media (max-width: 768px) {
+  .card-strip { --cols: 3; height: 300px; }
+}
 
 /* ---- 全局细滚动条 ---- */
 .thin-scroll { scrollbar-width: thin; scrollbar-color: var(--c-border) transparent; }
