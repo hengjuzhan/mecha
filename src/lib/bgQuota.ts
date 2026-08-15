@@ -51,6 +51,46 @@ export async function consumeBgQuota(): Promise<{ ok: boolean; remaining: number
 }
 
 /**
+ * 读取所有设备共享的背景（bg_get RPC）。返回 null 表示后端不可用或未配置。
+ */
+export async function bgGetAsync(): Promise<{ bgImage: string; bgTone: "dark" | "light" } | null> {
+  const cfg = getSettings().supabase;
+  if (isSupabaseConfigured(cfg)) {
+    try {
+      const d = await fetcht<{ bg_image: string; bg_tone: string }[]>(
+        `${cfg.url.replace(/\/$/, "")}/rest/v1/rpc/bg_get`, 6000,
+        { method: "POST", headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" }, body: "{}" },
+      );
+      const r = Array.isArray(d) && d[0] ? d[0] : undefined;
+      if (r) return { bgImage: r.bg_image || "", bgTone: r.bg_tone === "light" ? "light" : "dark" };
+    } catch { /* 后端不可用 */ }
+  }
+  return null;
+}
+
+/**
+ * 将背景写入数据库以实现所有设备同步（bg_set RPC）。
+ * 配额消耗由调用方通过 consumeBgQuota 控制。返回是否成功写入。
+ */
+export async function bgSetAsync(image: string, tone: string): Promise<boolean> {
+  const cfg = getSettings().supabase;
+  if (isSupabaseConfigured(cfg)) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 6000);
+      try {
+        const res = await fetch(
+          `${cfg.url.replace(/\/$/, "")}/rest/v1/rpc/bg_set`, { signal: ctrl.signal,
+            method: "POST", headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ p_image: image, p_tone: tone }) },
+        );
+        return res.ok;
+      } finally { clearTimeout(timer); }
+    } catch { /* 后端不可用则仅本地生效 */ }
+  }
+  return false;
+}
+
+/**
  * 异步查询今日剩余上传次数（优先数据库共享配额，未配置时回退本地）。
  * 返回 null 表示无法确定（如后端不可用）。
  */

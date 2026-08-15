@@ -4,7 +4,7 @@ import { dateSeed, mulberry } from "../../lib/utils";
 import { Modal } from "../widgets/Modal";
 import { GuestBook } from "../widgets/GuestBook";
 import { guestbookStats } from "../../lib/guestbook";
-import { consumeBgQuota, bgQuotaRemaining, bgQuotaRemainingAsync } from "../../lib/bgQuota";
+import { consumeBgQuota, bgQuotaRemaining, bgQuotaRemainingAsync, bgGetAsync, bgSetAsync } from "../../lib/bgQuota";
 import { isSupabaseConfigured } from "../../lib/supabase";
 import { detectBgTone, compressImage } from "../../lib/imageTone";
 import { isAdminSession } from "../admin/AdminLogin";
@@ -47,10 +47,18 @@ export function RightRail() {
   const [remaining, setRemaining] = useState(bgQuotaRemaining());
   const isAdmin = isAdminSession();
 
-  // 挂载时若已配置数据库，展示共享配额剩余次数
+  // 挂载时若已配置数据库，展示共享配额剩余次数，并加载所有设备共享的背景
   useEffect(() => {
-    if (!isAdminSession() && isSupabaseConfigured(getSettings().supabase)) {
+    if (isSupabaseConfigured(getSettings().supabase)) {
       void bgQuotaRemainingAsync().then((r) => { if (r !== null) setRemaining(r); });
+      void bgGetAsync().then((r) => {
+        if (r && r.bgImage) {
+          const cur = getSettings();
+          if (cur.bgImage !== r.bgImage || cur.bgTone !== r.bgTone) {
+            setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
+          }
+        }
+      });
     }
   }, []);
 
@@ -63,6 +71,7 @@ export function RightRail() {
       if (!q.ok) { toast(`今日上传次数已用尽（每日共 10 次），明天再来吧`, "warn"); return; }
       const tone = await detectBgTone(src);
       setSettings({ bgImage: src, bgTone: tone });
+      await bgSetAsync(src, tone); // 写入数据库，实现所有设备同步
       setRemaining(q.remaining); // 同步共享配额剩余次数
       toast(isAdmin ? "背景已更新（管理员不限次数）" : `背景已更新，今日剩余 ${q.remaining} 次`, "ok");
     } finally {

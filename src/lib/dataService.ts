@@ -3,6 +3,7 @@ import { DEFAULT_CATEGORIES, DEFAULT_LINKS, DEFAULT_ANNOUNCEMENTS, DEFAULT_PROMO
 import { DEFAULT_TEXTS } from "../data/texts";
 import type { Announcement, Category, LinkItem, MusicSource, Overlay, Promo, Settings } from "../data/types";
 import { fuzzyScore, todayStr, uid } from "./utils";
+import { isSupabaseConfigured } from "./supabase";
 
 const LS_OVERLAY = "mechanav.data.v1";
 const LS_SET = "mechanav.settings.v1";
@@ -32,7 +33,10 @@ export const DEFAULT_SETTINGS: Settings = {
   homeTransparent: false,
   bgImage: "",
   bgTone: "dark",
-  supabase: null,
+  supabase: {
+    url: "https://njwoxdamaqtbnvpuvblg.supabase.co",
+    key: "sb_publishable_K4Yw_dhapfPUPRzu2H4TvQ_kN9IfnSl",
+  },
   visitsDay: "",
   visitsTotal: 0,
   visitsToday: 0,
@@ -56,10 +60,18 @@ function loadJSON<T>(key: string, fallback: T): T {
 }
 
 let overlay: Overlay = loadJSON<Overlay>(LS_OVERLAY, {});
-let settings: Settings = { ...DEFAULT_SETTINGS, ...loadJSON<Partial<Settings>>(LS_SET, {}) };
+let settings: Settings = normalizeSettings({ ...DEFAULT_SETTINGS, ...loadJSON<Partial<Settings>>(LS_SET, {}) });
 let backendOk = false;
 export const isBackendOk = () => backendOk;
 export const setBackendOk = (v: boolean) => { backendOk = v; };
+
+// 合并设置时，localStorage 中为 null 的 supabase 视为未配置，回退到内置默认连接
+function normalizeSettings(s: Settings): Settings {
+  if (!isSupabaseConfigured(s.supabase)) {
+    s = { ...s, supabase: DEFAULT_SETTINGS.supabase };
+  }
+  return s;
+}
 
 // 迁移：仅清理无效/偏移的旧音源，保留所有可用播放源（gdstudio 平台 + 访客自备源）
 const savedMusic = overlay.musicSources;
@@ -135,7 +147,7 @@ if (typeof window !== "undefined") {
 
 export const getSettings = (): Settings => settings;
 export function setSettings(patch: Partial<Settings>) {
-  settings = { ...settings, ...patch };
+  settings = normalizeSettings({ ...settings, ...patch });
   scheduleSettingsWrite();
   settingsEmit(); // 仅通知 settings 订阅者，不再触发全站 useStore 重渲染
 }

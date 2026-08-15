@@ -244,6 +244,45 @@ grant execute on function bg_quota_remaining() to anon, authenticated;
 alter table bg_quota enable row level security;
 
 -- ============================================================
+-- 共享背景：所有设备同步的页面背景图与深浅色调
+-- 前端「背景设置」上传/更换时通过 bg_set 写入，各设备加载时通过 bg_get 读取
+-- ============================================================
+create table if not exists site_bg (
+  id int primary key default 1,
+  bg_image text not null default '',
+  bg_tone text not null default 'dark',
+  updated_at timestamptz not null default now()
+);
+insert into site_bg (id) values (1) on conflict (id) do nothing;
+
+-- 读取共享背景（不消耗配额；匿名可执行）
+create or replace function bg_get()
+returns table (bg_image text, bg_tone text)
+language sql
+security definer stable
+as $$
+  select bg_image, bg_tone from site_bg where id = 1;
+$$;
+
+-- 写入共享背景（不消耗配额；配额由前端 bg_quota_consume 控制，管理员与访客均可同步）
+create or replace function bg_set(p_image text, p_tone text)
+returns void
+language sql
+security definer
+as $$
+  update site_bg
+  set bg_image = coalesce(p_image, ''), bg_tone = coalesce(p_tone, 'dark'), updated_at = now()
+  where id = 1;
+$$;
+
+revoke all on function bg_get() from public;
+revoke all on function bg_set(text, text) from public;
+grant execute on function bg_get() to anon, authenticated;
+grant execute on function bg_set(text, text) to anon, authenticated;
+
+alter table site_bg enable row level security;
+
+-- ============================================================
 -- 管理员令牌初始化（可选）：
 -- 将下方 token 替换为管理员口令的 SHA-256 十六进制值
 -- ============================================================
