@@ -53,32 +53,29 @@ function GlobalEffects() {
   useEffect(() => {
     document.documentElement.setAttribute("data-admin", adminOn ? "on" : "off");
     if (!adminOn) return;
-    const makeEditable = () => {
-      document.querySelectorAll<HTMLElement>("[data-tk]").forEach((el) => { el.contentEditable = "true"; el.classList.add("admin-editable"); });
-    };
-    const disableEditable = () => {
+    // 只对尚未可编辑的元素补属性，避免反复 contentEditable 重置破坏光标位置
+    const ensureEditable = () => {
       document.querySelectorAll<HTMLElement>("[data-tk]").forEach((el) => {
-        el.contentEditable = "false";
-        el.classList.remove("admin-editable");
+        if (el.getAttribute("contenteditable") !== "true") {
+          el.contentEditable = "true";
+          el.classList.add("admin-editable");
+        }
       });
     };
-    makeEditable();
-    // 输入结束后写回文案覆盖层
+    ensureEditable();
+    // 失焦时写回文案覆盖层：输入过程中不触发 setTexts，避免全站重渲染把光标重置到开头
     const commit = (e: Event) => {
       const el = (e.target as HTMLElement).closest?.("[data-tk]") as HTMLElement | null;
       if (el?.dataset.tk) setTexts({ [el.dataset.tk]: el.textContent ?? "" });
     };
-    const firstPass = () => {
-      disableEditable();
-      makeEditable();
-    };
-    document.addEventListener("input", commit);
-    const mo = new MutationObserver(firstPass);
+    // focusout 冒泡，能捕获正在编辑的 data-tk 元素失焦
+    document.addEventListener("focusout", commit);
+    // 仅当懒加载等新增 data-tk 元素时补充可编辑，不重置已编辑元素
+    const mo = new MutationObserver(ensureEditable);
     mo.observe(document.body, { childList: true, subtree: true });
     return () => {
-      document.removeEventListener("input", commit);
+      document.removeEventListener("focusout", commit);
       mo.disconnect();
-      disableEditable();
       document.documentElement.setAttribute("data-admin", "off");
     };
   }, [adminOn]);
