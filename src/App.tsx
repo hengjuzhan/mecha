@@ -223,7 +223,7 @@ function PromoCard({ promo }: { promo: Promo }) {
       <span className="text-2xl leading-none">{promo.icon}</span>
       <span className="jittable truncate text-sm font-bold" style={{ color: acc }}>{promo.title}</span>
       <span className="text-[11px] leading-snug text-[var(--c-dim)]">{promo.desc}</span>
-      <span className="num mt-auto text-[9px] tracking-widest text-[var(--c-dim)] opacity-0 transition-opacity group-hover:opacity-100">TAP TO EXPLORE ▸</span>
+      <span className="num mt-auto text-[9px] tracking-widest text-[var(--c-dim)] opacity-0 transition-opacity group-hover:opacity-100 hidden sm:block">TAP TO EXPLORE ▸</span>
     </a>
   );
 }
@@ -232,23 +232,23 @@ function Home() {
   const { categories, promos } = useStore();
   const st = stats();
   return (
-    <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] pt-16 md:grid-cols-[264px_minmax(0,1fr)_56px]">
+    <div className="grid min-h-screen grid-cols-[minmax(0,1fr)] pt-16 lg:grid-cols-[264px_minmax(0,1fr)_56px]">
       <div className="col-span-full">
         <TopBar />
       </div>
       <Sidebar />
-      <main className="min-w-0 px-3 pb-28 pt-3 md:pb-10">
+      <main className="min-w-0 px-3 pb-24 pt-3 lg:pb-10">
         <div className="mx-auto flex max-w-[1300px] flex-col gap-3">
-          {/* 欢迎横幅 */}
-          <section className="panel relative overflow-hidden p-5 sm:p-7">
+          {/* 欢迎横幅（手机紧凑：小内边距 + 标题缩小 + 装饰标签组隐藏） */}
+          <section className="panel relative overflow-hidden p-4 sm:p-7">
             <Corners />
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 sm:gap-y-4">
               <div className="min-w-0 flex-1 basis-72">
-                <h1 data-tk="welcome.title" className="num text-2xl font-black tracking-wider neon-text sm:text-3xl">{t("welcome.title")}</h1>
-                <p data-tk="welcome.sub" className="mt-2 text-sm text-[var(--c-dim)]">{t("welcome.sub")}</p>
-                <p data-tk="welcome.hint" className="mt-3 text-[11px] text-[var(--c-dim)]">◈ {t("welcome.hint")}</p>
+                <h1 data-tk="welcome.title" className="num text-xl font-black tracking-wider neon-text sm:text-3xl">{t("welcome.title")}</h1>
+                <p data-tk="welcome.sub" className="mt-1.5 text-sm text-[var(--c-dim)] sm:mt-2">{t("welcome.sub")}</p>
+                <p data-tk="welcome.hint" className="mt-2 text-[11px] text-[var(--c-dim)] sm:mt-3">◈ {t("welcome.hint")}</p>
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-2">
+              <div className="hidden shrink-0 flex-col items-end gap-2 sm:flex">
                 <span data-tk="welcome.tag" className="num border border-[var(--c-cyan)] px-2.5 py-1 text-[10px] tracking-[0.35em] text-[var(--c-cyan)]">◉ {t("welcome.tag")}</span>
                 <div className="flex gap-1.5">
                   <span className="num border border-[var(--c-border)] px-2 py-1 text-[9px] tracking-widest text-[var(--c-magenta)]">NEON-CORE</span>
@@ -280,7 +280,7 @@ function Home() {
           </section>
 
           {/* 三矩形框：公告发布区 / AI开源快讯 / 心情轮播（受最大活动范围约束，内容框内上下滚动） */}
-          <div className="flex flex-col gap-3 lg:flex-row lg:max-h-[640px]">
+          <div className="boards-row flex flex-col gap-3 lg:flex-row lg:max-h-[640px]">
             <ResizableBoard side="left" title={t("board.ann")} tag={t("ann.tag")} accent="orange" maxH={560}>
               <AnnounceBoard />
             </ResizableBoard>

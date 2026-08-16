@@ -111,7 +111,8 @@ export function ResizableBoard({
               className="grid h-6 w-6 place-items-center rounded border border-[var(--c-border)] text-[13px] leading-none text-[var(--c-dim)] active:scale-90"
               aria-label="调大高度">+</button>
           </div>
-          <div className="flex items-center gap-0.5">
+          {/* 宽度按钮仅并排布局（lg+）有意义；手机/平板全宽堆叠时隐藏，省出头部空间 */}
+          <div className="flex items-center gap-0.5 hidden lg:flex">
             <span className="num text-[9px] leading-none text-[var(--c-dim)]">宽</span>
             <button type="button" onClick={() => bumpW(-40)}
               className="grid h-6 w-6 place-items-center rounded border border-[var(--c-border)] text-[13px] leading-none text-[var(--c-dim)] active:scale-90"

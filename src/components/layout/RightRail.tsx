@@ -158,7 +158,7 @@ export function RightRail() {
     <>
       {/* ===== 桌面右栏 56px ===== */}
       <nav
-        className="glass sticky top-16 hidden h-[calc(100vh-4rem)] flex-col items-center border-l py-2 md:flex"
+        className="glass sticky top-16 hidden h-[calc(100vh-4rem)] flex-col items-center border-l py-2 lg:flex"
         style={{
           background: "color-mix(in srgb, var(--c-panel) 90%, transparent)",
           borderColor: "color-mix(in srgb, #ffffff 10%, var(--c-border))",
@@ -206,7 +206,7 @@ export function RightRail() {
         type="button"
         onClick={() => setMenuOpen(true)}
         aria-label="快捷菜单"
-        className="fixed bottom-20 right-3 z-[100] flex h-11 w-11 items-center justify-center rounded-full border border-[var(--c-cyan)] bg-[var(--c-panel)] text-lg shadow-[0_0_14px_color-mix(in_srgb,var(--c-cyan)_40%,transparent)] md:hidden"
+        className="fixed bottom-20 right-3 z-[100] flex h-11 w-11 items-center justify-center rounded-full border border-[var(--c-cyan)] bg-[var(--c-panel)] text-lg shadow-[0_0_14px_color-mix(in_srgb,var(--c-cyan)_40%,transparent)] lg:hidden"
       >
         🛰️
       </button>

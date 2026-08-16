@@ -197,8 +197,16 @@ section[id], [data-anchor] { scroll-margin-top: 86px; }
 }
 /* 格子内容不撑破列宽，避免卡片/占位卡被挤出或裁剪 */
 .card-strip > * { min-width: 0; max-width: 100%; }
+/* 手机竖屏：3 列、紧凑高度（紧凑字号下 3 行卡片 276px 足够，比原来少占 24px） */
 @media (max-width: 768px) {
-  .card-strip { --cols: 3; height: 300px; }
+  .card-strip { --cols: 3; height: 276px; gap: 10px; }
+}
+/* 手机横屏（高度有限）：2 行 × 5 列矮版卡片带，避免一屏被卡片带占满 */
+@media (max-width: 1023px) and (orientation: landscape) and (max-height: 540px) {
+  .card-strip { grid-template-rows: repeat(2, minmax(0, 1fr)); --cols: 5; height: 176px; gap: 10px; }
+  /* 三信息框竖屏上下堆叠太长（3×280px+），横屏宽度足够时并排一屏看全 */
+  .boards-row { flex-direction: row; }
+  .boards-row > * { flex: 1 1 0 !important; max-width: 34%; }
 }
 
 /* ---- 全局细滚动条 ---- */
@@ -449,16 +457,13 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   background: linear-gradient(160deg, color-mix(in srgb, var(--c-panel) 68%, transparent), color-mix(in srgb, var(--c-panel2) 78%, transparent));
 }
 
-/* ---- 移动端 / 平板（<1024px）：放大过小字号，保证可读性 ---- */
-@media (max-width: 1023px) {
+/* ---- 字号可读性：仅平板（769-1023px）放大；手机（≤768px）保持紧凑设计字号，保证一屏容纳更多内容 ---- */
+@media (min-width: 769px) and (max-width: 1023px) {
   .text-\[8px\] { font-size: 11px !important; }
   .text-\[9px\] { font-size: 12px !important; }
   .text-\[10px\] { font-size: 13px !important; }
   .text-\[11px\] { font-size: 14px !important; }
   .text-xs { font-size: 13px !important; }
-}
-/* 占位卡文字保持紧凑 + 不换行，避免窄格内被放大后折叠/顶出 */
-@media (max-width: 1023px) {
   .ph-deck .ph-card span.text-\[11px\] { font-size: 12px !important; }
   .ph-deck .ph-card span.text-\[8px\] { font-size: 9px !important; }
 }
@@ -476,27 +481,31 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
 }
 
 /* ---- 手机/平板竖屏进入：横屏使用提醒遮罩（仅触屏设备，桌面不显示） ---- */
-.rotate-overlay {
-  position: fixed; inset: 0; z-index: 99999;
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px;
-  background: color-mix(in srgb, var(--c-bg, #0d1424) 92%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+/* ---- 手机/平板竖屏：顶部非阻断横屏提示条（不遮挡页面，可关闭/自动收起） ---- */
+.rotate-hint {
+  position: fixed; left: 50%; top: 68px; z-index: 9600;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(92vw, 420px);
+  padding: 8px 10px 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--c-cyan, #00e5ff) 55%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--c-panel, #0d1526) 94%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--c-cyan, #00e5ff) 30%, transparent), 0 8px 24px rgba(0,0,0,.4);
+  animation: hint-in .25s ease-out;
 }
-.rotate-box {
-  display: flex; flex-direction: column; align-items: center; gap: 16px;
-  max-width: 360px; text-align: center;
-  padding: 32px 28px;
-  border: 1px solid var(--c-border, #3a4a66);
-  background: color-mix(in srgb, var(--c-panel2, #131c30) 96%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-cyan, #00e5ff) 35%, transparent), 0 12px 40px rgba(0,0,0,.45);
-}
-.rotate-icon { color: var(--c-cyan, #00e5ff); animation: rotate-swing 1.6s ease-in-out infinite; }
+@keyframes hint-in { from { opacity: 0; transform: translateX(-50%) translateY(-8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+.rotate-hint-icon { color: var(--c-cyan, #00e5ff); display: inline-flex; animation: rotate-swing 1.6s ease-in-out infinite; }
 @keyframes rotate-swing {
   0%, 100% { transform: rotate(0deg); }
   50% { transform: rotate(90deg); }
 }
-.rotate-title { font-size: 20px; font-weight: 700; letter-spacing: .08em; color: var(--c-text, #e8eefc); }
-.rotate-sub { font-size: 13px; line-height: 1.7; color: var(--c-dim, #7a8aa6); }
-.rotate-btn { margin-top: 4px; height: 38px; padding: 0 18px; font-size: 13px; }
+.rotate-hint-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rotate-hint-text b { font-size: 12px; letter-spacing: .05em; color: var(--c-text, #e8eefc); }
+.rotate-hint-sub { font-size: 10px; color: var(--c-dim, #7a8aa6); }
+.rotate-hint-close {
+  flex-shrink: 0; width: 22px; height: 22px; line-height: 1;
+  font-size: 11px; color: var(--c-dim, #7a8aa6);
+  border: 1px solid var(--c-border, #3a4a66); border-radius: 4px;
+}
+.rotate-hint-close:active { color: var(--c-text, #e8eefc); }

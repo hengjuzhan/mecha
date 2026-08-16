@@ -57,8 +57,8 @@ export function Sidebar() {
 
   return (
     <>
-      {/* ===== 桌面左栏：264px 列，sticky 全高 ===== */}
-      <aside className="glass sticky top-16 hidden h-[calc(100vh-4rem)] flex-col overflow-hidden md:flex"
+      {/* ===== 桌面左栏：264px 列，sticky 全高（≥1024；手机横屏 768-1023 走全宽+底部导航） ===== */}
+      <aside className="glass sticky top-16 hidden h-[calc(100vh-4rem)] flex-col overflow-hidden lg:flex"
         style={{
           background: "color-mix(in srgb, var(--c-panel) 90%, transparent)",
           borderRight: "1px solid color-mix(in srgb, #ffffff 10%, var(--c-border))",
@@ -80,9 +80,9 @@ export function Sidebar() {
         </button>
       </aside>
 
-      {/* ===== 移动端底部标签栏（<768px） ===== */}
+      {/* ===== 移动端底部标签栏（<1024px，含手机横屏） ===== */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-[100] flex h-14 items-stretch overflow-x-auto border-t border-[var(--c-border)] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-[100] flex h-14 items-stretch overflow-x-auto border-t border-[var(--c-border)] lg:hidden"
         aria-label="移动导航"
       >
         {categories.map((c) => (
@@ -109,7 +109,7 @@ export function Sidebar() {
 
       {/* 移动端音乐抽屉 */}
       <div
-        className={`fixed inset-x-0 bottom-14 z-[400] transition-transform duration-200 md:hidden ${musicSheet ? "translate-y-0" : "pointer-events-none translate-y-[130%]"}`}
+        className={`fixed inset-x-0 bottom-14 z-[400] transition-transform duration-200 lg:hidden ${musicSheet ? "translate-y-0" : "pointer-events-none translate-y-[130%]"}`}
       >
         <div className="panel border-t-2 border-[var(--c-cyan)] p-2 pb-3">
           <div className="mb-1 flex justify-end">
