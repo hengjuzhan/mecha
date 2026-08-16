@@ -223,8 +223,9 @@ export function AppearanceSection() {
               <button type="button" className="btn-mech h-8 px-3 text-xs" onClick={() => fileRef.current?.click()}>⬆ 上传背景图</button>
               {s.bgImage && <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={async () => {
                 setSettings({ bgImage: "", bgTone: "dark" });
-                const ok = await cloud.bg.clear(getAdminHash());
-                toast(ok ? "已清除所有设备共享背景" : "本地已清除，云端同步失败", ok ? "ok" : "warn");
+                const r = await cloud.bg.clear(getAdminHash());
+                if (r !== undefined) void cloud.bg.remove(r || "");
+                toast(r !== undefined ? "已清除所有设备共享背景" : "本地已清除，云端同步失败", r !== undefined ? "ok" : "warn");
               }}>✕ 清除背景</button>}
             </div>
             <DebouncedInput className={`${inp} mt-1.5`} placeholder="或粘贴图片 URL（https://…）"
@@ -342,10 +343,9 @@ export function SystemSection() {
   const clearSharedBg = async () => {
     if (!window.confirm("确定清除所有设备共享的自定义背景吗？包括云端记录，此操作不可恢复。")) return;
     setSettings({ bgImage: "", bgTone: "dark" });
-    const ok = await cloud.bg.clear(getAdminHash());
-    // 令牌不一致是清除失败的主因：多设备设过不同口令或本地重置过数据会导致云端令牌漂移，
-    // 需在数据库执行 delete from settings where key='admin' 后重新登录即可自动重新绑定
-    toast(ok ? "已清除共享背景" : "本地已清除，但云端同步失败：管理员令牌与云端不一致，请在系统页查看恢复方法", ok ? "ok" : "warn");
+    const r = await cloud.bg.clear(getAdminHash());
+    if (r !== undefined) void cloud.bg.remove(r || "");
+    toast(r !== undefined ? "已清除共享背景" : "本地已清除，但云端同步失败，请检查数据库连接后重试", r !== undefined ? "ok" : "warn");
   };
 
   const changePw = async () => {

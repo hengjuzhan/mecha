@@ -6,7 +6,8 @@
 --   · 访问计数：visits_bump(增量) / visits_get(只读) / visits_reset(管理员清空)
 --   · 全站数据与文案：settings 表 JSON 覆盖层（site_data_* / texts_*）
 --   · 留言对话：guest_messages 表（guest_*）
---   · 背景配额与共享背景：bg_quota / site_bg（bg_*）
+--   · 背景配额与共享背景：bg_quota / site_bg（bg_*）；bg_set/bg_clear 返回被替换的旧背景 URL，
+--     前端据此删除 Storage 旧文件，保证桶里只保留最新一张；bg_clear 访客亦可调用（与可上传权限一致）
 -- ============================================================
 
 -- ============ 清理旧版函数（v1 遗留，避免签名冲突） ============
@@ -357,24 +358,34 @@ as $$
   select bg_image, bg_tone from site_bg where id = 1;
 $$;
 
+-- 返回被覆盖的旧背景 URL：前端据此删除 Storage 旧文件，保证库里/桶里只保留最新一张
 create or replace function bg_set(p_image text, p_tone text)
-returns void
-language sql
-security definer
-as $$
-  update site_bg
-  set bg_image = coalesce(p_image, ''), bg_tone = coalesce(p_tone, 'dark'), updated_at = now()
-  where id = 1;
-$$;
-
-create or replace function bg_clear(p_token text)
-returns void
+returns text
 language plpgsql
 security definer
 as $$
+declare v_old text;
 begin
-  perform admin_check(p_token);
+  select bg_image into v_old from site_bg where id = 1;
+  update site_bg
+  set bg_image = coalesce(p_image, ''), bg_tone = coalesce(p_tone, 'dark'), updated_at = now()
+  where id = 1;
+  return coalesce(v_old, '');
+end;
+$$;
+
+-- 访客也可清除共享背景（与访客可上传的权限一致）；p_token 保留入参兼容旧客户端，不再校验
+-- 返回被清除的旧背景 URL，供前端删除 Storage 文件
+create or replace function bg_clear(p_token text)
+returns text
+language plpgsql
+security definer
+as $$
+declare v_old text;
+begin
+  select bg_image into v_old from site_bg where id = 1;
   update site_bg set bg_image = '', bg_tone = 'dark', updated_at = now() where id = 1;
+  return coalesce(v_old, '');
 end;
 $$;
 
@@ -412,3 +423,19 @@ create policy "bg_bucket_update" on storage.objects
 for update to anon, authenticated
 using (bucket_id = 'bg')
 with check (bucket_id = 'bg');
+
+-- 匿名可删除 bg- 前缀旧背景：库里只保留最新一张，新图写入后前端自动清理被替换的旧文件
+-- 关键：DELETE 策略评估 + Storage API 删除前定位对象都需要 anon 能 SELECT 到行（表级权限与行级策略缺一不可），
+-- 且需显式 grant select/delete on storage.objects（RLS 行级过滤保证 anon 只见 bg 桶 bg- 前缀，公开桶元数据本就公开）
+drop policy if exists "bg_bucket_select" on storage.objects;
+create policy "bg_bucket_select" on storage.objects
+for select to anon, authenticated
+using (bucket_id = 'bg' and storage.filename(name) like 'bg-%');
+
+drop policy if exists "bg_bucket_delete" on storage.objects;
+create policy "bg_bucket_delete" on storage.objects
+for delete to anon, authenticated
+using (bucket_id = 'bg' and storage.filename(name) like 'bg-%');
+
+grant select on storage.objects to anon, authenticated;
+grant delete on storage.objects to anon, authenticated;

@@ -184,11 +184,38 @@ async function bgUpload(dataUrl: string): Promise<string | null> {
   }
 }
 
-async function bgSet(image: string, tone: string): Promise<boolean> {
-  return rpcOk("bg_set", { p_image: image, p_tone: tone }, 10000);
+/** 写入新背景，返回被覆盖的旧背景 URL（前端据此删除 Storage 旧文件；undefined=失败/未配置） */
+async function bgSet(image: string, tone: string): Promise<string | null | undefined> {
+  return rpc<string>("bg_set", { p_image: image, p_tone: tone }, 10000);
 }
-async function bgClear(token: string): Promise<boolean> {
-  return rpcOk("bg_clear", { p_token: token }, 8000);
+/** 清空共享背景（访客与管理员均可），返回被清除的旧背景 URL 供清理 Storage */
+async function bgClear(token: string): Promise<string | null | undefined> {
+  return rpc<string>("bg_clear", { p_token: token }, 8000);
+}
+
+/** 删除 Storage bg 桶中被替换/清除的旧背景文件（仅接受本项目 Storage 的 bg- URL；失败静默，孤儿文件无害） */
+async function bgRemove(url: string): Promise<boolean> {
+  const cfg = currentCfg();
+  if (!cfg || !url) return false;
+  const base = cfg.url.replace(/\/$/, "");
+  const prefix = `${base}/storage/v1/object/public/bg/`;
+  if (!url.startsWith(prefix)) return false; // 外部 URL / base64 回退值无需清理
+  const name = url.slice(prefix.length);
+  if (!/^bg-[\w.-]+$/.test(name)) return false;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(`${base}/storage/v1/object/bg/${name}`, {
+      method: "DELETE",
+      signal: ctrl.signal,
+      headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}` },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const LS_BGQ = "mechanav.bgquota.v2";
@@ -256,7 +283,7 @@ export const cloud = {
   visits: { bump: visitsBump, get: visitsGet, cached: visitsCached, reset: visitsReset },
   siteData: { get: siteDataGet, set: siteDataSet },
   texts: { get: textsGet, set: textsSet },
-  bg: { get: bgGet, upload: bgUpload, set: bgSet, clear: bgClear, quotaConsume: bgQuotaConsume, quotaRemaining: bgQuotaRemaining },
+  bg: { get: bgGet, upload: bgUpload, set: bgSet, clear: bgClear, remove: bgRemove, quotaConsume: bgQuotaConsume, quotaRemaining: bgQuotaRemaining },
   guest: { list: guestList, add: guestAdd, del: guestDelete, clear: guestClear },
 };
 

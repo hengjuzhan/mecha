@@ -71,13 +71,20 @@ export function RightRail() {
       // Storage 二进制上传（移动网络下比 base64 走 JSON RPC 可靠得多）；失败回退 base64 直写
       const url = await cloud.bg.upload(src);
       let syncOk: boolean;
+      let replaced = "";
       if (url) {
         setSettings({ bgImage: url, bgTone: tone });
-        syncOk = await cloud.bg.set(url, tone);
+        const r = await cloud.bg.set(url, tone);
+        syncOk = r !== undefined;
+        replaced = r || "";
       } else {
         setSettings({ bgImage: src, bgTone: tone });
-        syncOk = await cloud.bg.set(src, tone);
+        const r = await cloud.bg.set(src, tone);
+        syncOk = r !== undefined;
+        replaced = r || "";
       }
+      // Storage 只保留最新一张：删除刚被替换的旧背景文件（base64 回退值/外部 URL 自动跳过）
+      if (syncOk) void cloud.bg.remove(replaced);
       setRemaining(q.remaining); // 同步共享配额剩余次数
       if (syncOk) {
         toast(isAdmin ? "背景已更新并同步所有设备（管理员不限次数）" : `背景已更新并同步所有设备，今日剩余 ${q.remaining} 次`, "ok");
@@ -254,11 +261,12 @@ export function RightRail() {
                 onKeyDown={(e) => { if (e.key === "Enter" && !bgBusy) { const v = (e.target as HTMLInputElement).value.trim(); if (v) void applyBg(v); } }} />
               {s.bgImage && <button type="button" className="btn-mech mag h-8 px-3 text-xs" onClick={async () => {
                 setSettings({ bgImage: "", bgTone: "dark" });
-                if (isAdmin) {
-                  const ok = await cloud.bg.clear(getAdminHash());
-                  toast(ok ? "已清除所有设备共享背景" : "本地已清除，云端同步失败", ok ? "ok" : "warn");
-                }
-              }}>✕ 清除{isAdmin ? "（全部设备）" : ""}</button>}
+                if (!cloud.configured()) return; // 未配置数据库：仅本机生效
+                // 访客与管理员一样清除所有设备共享的背景，并删除 Storage 里的图片文件
+                const r = await cloud.bg.clear(getAdminHash());
+                if (r !== undefined) void cloud.bg.remove(r || "");
+                toast(r !== undefined ? "已清除所有设备的背景" : "本地已清除，云端同步失败", r !== undefined ? "ok" : "warn");
+              }}>✕ 清除（全部设备）</button>}
             </div>
             <input ref={bgFileRef} type="file" accept="image/*" className="hidden"
               onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
