@@ -64,18 +64,24 @@ async function ghList(ref: RepoRef, path: string): Promise<string[] | null> {
   return null;
 }
 
-/** jsDelivr CDN 读取 GitHub 仓库文件：大陆直连快且有 CORS 头，是本站数据拉取的主链路。
- *  cdn.jsdelivr.net 会缓存文件，先经 purge.jsdelivr.net 触发刷新（返回 statuses），
- *  再拉取即可拿到分支最新提交的内容（实测 purge 后立即生效）。purge 失败不影响读取。 */
+/** jsDelivr CDN 读取 GitHub 仓库文件：大陆直连快且有 CORS 头。
+ *  cdn.jsdelivr.net 缓存可达 12h，靠 purge.jsdelivr.net 刷新；但 purge 有频率限制（超限 429 静默失败→拿旧缓存，
+ *  这是"数据不更新"的主因），所以 purge 按 path 节流（10 分钟内不重复），并整体降级为兜底链路。 */
+const purgeAt = new Map<string, number>();
 async function jsDelivrRaw(ref: RepoRef, path: string): Promise<string | null> {
   const cdn = `https://cdn.jsdelivr.net/gh/${ref.owner}/${ref.repo}@${ref.branch}/${enc(path)}`;
-  // purge 是异步刷新，等 300ms 让边缘节点回源
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 6000);
-    try { await fetch(`https://purge.jsdelivr.net/gh/${ref.owner}/${ref.repo}@${ref.branch}/${enc(path)}`, { signal: ctrl.signal }); } finally { clearTimeout(t); }
-    await new Promise((r) => setTimeout(r, 300));
-  } catch { /* purge 失败继续读缓存 */ }
+  const purgeUrl = `https://purge.jsdelivr.net/gh/${ref.owner}/${ref.repo}@${ref.branch}/${enc(path)}`;
+  const last = purgeAt.get(purgeUrl) ?? 0;
+  if (Date.now() - last > 600000) {
+    purgeAt.set(purgeUrl, Date.now());
+    // purge 是异步刷新，等 300ms 让边缘节点回源
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 6000);
+      try { await fetch(purgeUrl, { signal: ctrl.signal }); } finally { clearTimeout(t); }
+      await new Promise((r) => setTimeout(r, 300));
+    } catch { /* purge 失败继续读缓存 */ }
+  }
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
@@ -87,12 +93,9 @@ async function jsDelivrRaw(ref: RepoRef, path: string): Promise<string | null> {
   } catch { return null; }
 }
 
-/** 读取 GitHub 仓库某个文件的原始内容：jsDelivr CDN（主）→ raw 直连 → CORS 代理（兜底） */
+/** 读取 GitHub 仓库某个文件的原始内容：raw 直连（无 CDN 缓存，永远最新）→ jsDelivr CDN → CORS 代理（兜底） */
 async function ghRaw(ref: RepoRef, path: string): Promise<string | null> {
-  // 1. jsDelivr CDN：有 CORS 头，大陆网络直连稳定
-  const viaCdn = await jsDelivrRaw(ref, path);
-  if (viaCdn) return viaCdn;
-  // 2. raw.githubusercontent.com 直连（海外网络可用）
+  // 1. raw.githubusercontent.com 直连：带 CORS 头且无长缓存，数据链路里唯一保证"每次都最新"的源
   const url = `https://raw.githubusercontent.com/${ref.owner}/${ref.repo}/${ref.branch}/${path}`;
   try {
     const ctrl = new AbortController();
@@ -103,7 +106,10 @@ async function ghRaw(ref: RepoRef, path: string): Promise<string | null> {
       const text = await res.text();
       if (text && text.trim().length > 20) return text;
     }
-  } catch { /* 直连失败，走代理 */ }
+  } catch { /* 直连失败（部分网络环境阻断），走 CDN */ }
+  // 2. jsDelivr CDN：大陆直连稳定，但有缓存（purge 节流后可能拿旧数据，可接受为兜底）
+  const viaCdn = await jsDelivrRaw(ref, path);
+  if (viaCdn) return viaCdn;
   // 3. CORS 代理兜底
   const proxied = await fetchRaw(url, 10000);
   return proxied && proxied.trim().length > 20 ? proxied : null;

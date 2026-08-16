@@ -18,26 +18,42 @@ export function parseLrc(lrc: string): LyricLine[] {
 
 /**
  * 按网易云 id 获取标准 LRC 歌词文本。
- * 依次尝试多个 meting 代理（injahow / i-meto），任一成功即返回；
+ * 依次尝试多个歌词源（gdstudio / injahow / 网易官方经代理 / i-meto），任一成功即返回；
  * 超时用 AbortController 兜底，避免卡死切歌流程。
+ * 注意：injahow 挂掉时会返回 HTTP 200 + PHP 报错页，必须靠内容校验（含时间轴）挡掉。
  */
 async function fetchLyricText(neteaseId: string): Promise<string | undefined> {
-  const endpoints = [
-    `https://api.injahow.cn/meting/?type=lrc&id=${neteaseId}`,
-    `https://api.i-meto.com/meting/api?type=lrc&id=${neteaseId}`,
+  type Src = { url: string; json?: "gdstudio" | "netease" };
+  const sources: Src[] = [
+    // ① gdstudio（音乐源同站 API，CORS 全开，返回 {lyric, tlyric} JSON）
+    { url: `https://music-api.gdstudio.xyz/api.php?types=lyric&source=netease&id=${neteaseId}`, json: "gdstudio" },
+    // ② injahow meting（返回纯 LRC 文本；服务端 Redis 故障时 200 返回报错页，靠校验跳过）
+    { url: `https://api.injahow.cn/meting/?type=lrc&id=${neteaseId}` },
+    // ③ 网易云官方接口经 allorigins 代理（返回 {lrc:{lyric}} JSON；官方无 CORS 头必须走代理）
+    { url: `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://music.163.com/api/song/lyric?id=${neteaseId}&lv=1&kv=1&tv=-1`)}`, json: "netease" },
+    // ④ i-meto meting（偶尔要求鉴权，放最后）
+    { url: `https://api.i-meto.com/meting/api?type=lrc&id=${neteaseId}` },
   ];
-  for (const url of endpoints) {
+  for (const src of sources) {
     try {
       const ctrl = new AbortController();
       const timer = window.setTimeout(() => ctrl.abort(), 10000);
       try {
-        const res = await fetch(url, { signal: ctrl.signal });
+        const res = await fetch(src.url, { signal: ctrl.signal });
         if (!res.ok) continue;
-        const text = await res.text();
+        let text = await res.text();
+        if (src.json) {
+          // JSON 源：解出歌词字段，解析失败/字段为空则换下一源
+          try {
+            const j = JSON.parse(text) as Record<string, unknown>;
+            if (src.json === "gdstudio") text = String(j.lyric ?? "");
+            else text = String((j.lrc as { lyric?: string } | undefined)?.lyric ?? "");
+          } catch { continue; }
+        }
         // 有效歌词：含时间轴标签，且不是"暂无歌词/纯音乐"占位
-        if (text && text.includes("[") && !/暂无歌词|纯音乐，?没有歌词|没有歌词/.test(text)) return text;
+        if (text && /\[\d{1,2}:\d{1,2}/.test(text) && !/暂无歌词|纯音乐，?没有歌词|没有歌词/.test(text)) return text;
       } finally { window.clearTimeout(timer); }
-    } catch { /* 尝试下一个代理 */ }
+    } catch { /* 尝试下一个源 */ }
   }
   return undefined;
 }
