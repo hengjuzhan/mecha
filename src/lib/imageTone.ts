@@ -19,13 +19,20 @@ export async function detectBgTone(src: string): Promise<BgTone | null> {
         if (!ctx) { resolve(null); return; }
         ctx.drawImage(img, 0, 0, size, size);
         const d = ctx.getImageData(0, 0, size, size).data;
-        let dark = 0, light = 0;
+        let dark = 0, light = 0, sum = 0, sumSq = 0;
         const total = size * size;
+        const lums: number[] = [];
         for (let i = 0; i < d.length; i += 4) {
           const lum = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+          lums.push(lum);
+          sum += lum;
           if (lum < 90) dark++;
           else if (lum > 170) light++;
         }
+        const mean = sum / total;
+        for (const v of lums) sumSq += (v - mean) * (v - mean);
+        const std = Math.sqrt(sumSq / total); // 亮度离散度：表情包墙等高噪声图即使大面积亮也会局部吞字
+        if (std >= 55) resolve("mixed"); // 高噪声：不赌字色方向，靠重衬底+描底保可读
         const dr = dark / total, lr = light / total;
         if (lr >= 0.55) resolve("light");
         else if (dr >= 0.55) resolve("dark");

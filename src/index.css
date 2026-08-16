@@ -384,21 +384,36 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
 [data-blend="soft-light"] body::before { background-blend-mode: soft-light; }
 [data-blend="multiply"] body::before { background-blend-mode: multiply; }
 
-/* 主页透明：开启后面板更透明，露出自定义背景图（管理员「外观」可开关）
-   衬底 34%：纯 26% 时背景亮斑直接透进文字区域导致看不清 */
-[data-home-transparent="on"] .panel,
-[data-home-transparent="on"] .panel2 {
-  background-color: color-mix(in srgb, var(--c-panel) 34%, transparent);
+/* ============ 有背景图时的可读性保障（锚点 data-has-bg，与"透明化"开关无关） ============
+   背景 body 图无条件显示；旧版把衬底增强挂在 [data-home-transparent=on] 上，
+   用户关掉开关后背景仍在、增强全失效 → 字全糊在背景里。
+   现在两档：
+   - 透明化 on：按色调分级衬底（露背景多），配文字描边
+   - 透明化 off：统一厚衬底 88%（背景只在缝隙露出），无需描边 */
+
+/* ---- 档一：透明化开启（露出背景）---- */
+[data-has-bg="on"][data-home-transparent="on"] .panel,
+[data-has-bg="on"][data-home-transparent="on"] .panel2 {
+  background-color: color-mix(in srgb, var(--c-panel) 40%, transparent);
 }
-[data-home-transparent="on"] .glass {
-  background: linear-gradient(160deg, color-mix(in srgb, var(--c-panel) 28%, transparent), color-mix(in srgb, var(--c-panel2) 38%, transparent));
+[data-has-bg="on"][data-home-transparent="on"] .glass {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c-panel) 34%, transparent), color-mix(in srgb, var(--c-panel2) 44%, transparent));
 }
 /* 露背景图时给全站文字加深色轻阴影：背景图局部亮斑处浅色文字仍可读（元素自带 text-shadow 不受影响） */
-[data-home-transparent="on"] {
+[data-has-bg="on"][data-home-transparent="on"] {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 6px rgba(0, 0, 0, 0.3);
 }
 
-/* 背景深浅自适应：浅色背景图时，模块保持半透明但文字/边框/强调色转深色，保证可读 */
+/* ---- 档二：透明化关闭（厚衬底，背景只在页面缝隙露出）---- */
+[data-has-bg="on"][data-home-transparent="off"] .panel,
+[data-has-bg="on"][data-home-transparent="off"] .panel2 {
+  background-color: color-mix(in srgb, var(--c-panel) 88%, transparent);
+}
+[data-has-bg="on"][data-home-transparent="off"] .glass {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c-panel) 85%, transparent), color-mix(in srgb, var(--c-panel2) 92%, transparent));
+}
+
+/* ---- 色调分级：浅色背景（文字转深色，变量块在前）---- */
 [data-bg-tone="light"] {
   --c-text: #13233a;
   --c-dim: #3d5478;
@@ -409,29 +424,29 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   --c-magenta: #a8127f;
   --c-orange: #c25a00;
 }
-/* 浅色背景：深色文字不需要阴影（会发糊），衬底加重到 48% 压住背景暗斑 */
-[data-bg-tone="light"][data-home-transparent="on"] {
+/* 浅色背景：深色文字不需要阴影（会发糊），衬底加重压住背景暗斑 */
+[data-has-bg="on"][data-home-transparent="on"][data-bg-tone="light"] {
   text-shadow: none;
 }
-[data-bg-tone="light"][data-home-transparent="on"] .panel,
-[data-bg-tone="light"][data-home-transparent="on"] .panel2 {
-  background-color: color-mix(in srgb, #ffffff 48%, transparent);
+[data-has-bg="on"][data-home-transparent="on"][data-bg-tone="light"] .panel,
+[data-has-bg="on"][data-home-transparent="on"][data-bg-tone="light"] .panel2 {
+  background-color: color-mix(in srgb, #ffffff 58%, transparent);
 }
-[data-bg-tone="light"][data-home-transparent="on"] .glass {
-  background: linear-gradient(160deg, color-mix(in srgb, #ffffff 40%, transparent), color-mix(in srgb, #eef5ff 50%, transparent));
+[data-has-bg="on"][data-home-transparent="on"][data-bg-tone="light"] .glass {
+  background: linear-gradient(160deg, color-mix(in srgb, #ffffff 50%, transparent), color-mix(in srgb, #eef5ff 62%, transparent));
 }
 
-/* 明暗混杂背景：换文字色必然判错一半，改为重衬底（62%，仍透出背景轮廓）+ 更强文字阴影，
-   浅色文字配深衬底在亮区/暗区都可读 */
-[data-bg-tone="mixed"][data-home-transparent="on"] {
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 8px rgba(0, 0, 0, 0.45);
+/* ---- 色调分级：明暗混杂/高噪声背景（表情包墙等）----
+   换字色必然判错一半，改为重衬底 74% + 更强描边，浅色文字在亮区/暗区都可读 */
+[data-has-bg="on"][data-home-transparent="on"][data-bg-tone="mixed"] {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75), 0 0 10px rgba(0, 0, 0, 0.5);
 }
-[data-bg-tone="mixed"][data-home-transparent="on"] .panel,
-[data-bg-tone="mixed"][data-home-transparent="on"] .panel2 {
-  background-color: color-mix(in srgb, var(--c-panel) 62%, transparent);
+[data-has-bg="on"][data-home-transparent="on"][data-bg-tone="mixed"] .panel,
+[data-has-bg="on"][data-home-transparent="on"][data-bg-tone="mixed"] .panel2 {
+  background-color: color-mix(in srgb, var(--c-panel) 74%, transparent);
 }
-[data-bg-tone="mixed"][data-home-transparent="on"] .glass {
-  background: linear-gradient(160deg, color-mix(in srgb, var(--c-panel) 55%, transparent), color-mix(in srgb, var(--c-panel2) 65%, transparent));
+[data-has-bg="on"][data-home-transparent="on"][data-bg-tone="mixed"] .glass {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c-panel) 68%, transparent), color-mix(in srgb, var(--c-panel2) 78%, transparent));
 }
 
 /* ---- 移动端 / 平板（<1024px）：放大过小字号，保证可读性 ---- */

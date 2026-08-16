@@ -159,6 +159,9 @@ function GlobalEffects() {
       b.backgroundImage = ""; b.backgroundSize = ""; b.backgroundPosition = ""; b.backgroundRepeat = ""; b.backgroundAttachment = "";
     }
     document.documentElement.setAttribute("data-home-transparent", s.homeTransparent ? "on" : "off");
+    // 可读性增强的真正锚点：只要设置了背景图就要保证文字可读，与"透明化"开关无关
+    // （旧逻辑挂在 transparent 上，用户关掉开关后背景图仍显示但衬底/描边全部失效，字全糊在背景里）
+    document.documentElement.setAttribute("data-has-bg", s.bgImage ? "on" : "off");
     document.documentElement.setAttribute("data-bg-tone", s.bgTone);
   }, [s.bgImage, s.homeTransparent, s.bgTone]);
 
