@@ -197,13 +197,16 @@ section[id], [data-anchor] { scroll-margin-top: 86px; }
 }
 /* 格子内容不撑破列宽，避免卡片/占位卡被挤出或裁剪 */
 .card-strip > * { min-width: 0; max-width: 100%; }
+/* 卡片内文字行禁止 flex 压缩：格子过矮时由卡片 overflow:hidden 底部裁剪，绝不上下重叠 */
+.card-strip .panel2 > div { flex-shrink: 0; }
 /* 手机竖屏：3 列、紧凑高度（紧凑字号下 3 行卡片 276px 足够，比原来少占 24px） */
 @media (max-width: 768px) {
   .card-strip { --cols: 3; height: 276px; gap: 10px; }
 }
-/* 手机横屏（高度有限）：2 行 × 5 列矮版卡片带，避免一屏被卡片带占满 */
+/* 手机横屏（高度有限）：2 行 × 5 列矮版卡片带，避免一屏被卡片带占满；
+   高度 184px 使每格 ~82px，配合紧凑字号与隐藏描述行刚好容纳 图标+名称+编号 */
 @media (max-width: 1023px) and (orientation: landscape) and (max-height: 540px) {
-  .card-strip { grid-template-rows: repeat(2, minmax(0, 1fr)); --cols: 5; height: 176px; gap: 10px; }
+  .card-strip { grid-template-rows: repeat(2, minmax(0, 1fr)); --cols: 5; height: 184px; gap: 10px; }
   /* 三信息框竖屏上下堆叠太长（3×280px+），横屏宽度足够时并排一屏看全 */
   .boards-row { flex-direction: row; }
   .boards-row > * { flex: 1 1 0 !important; max-width: 34%; }
@@ -267,8 +270,8 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   transition: transform 0.35s cubic-bezier(.2,.8,.3,1.2), opacity 0.35s ease;
   overflow: hidden;
 }
-/* 占位卡文字永不换行，空间不足时裁剪而非折叠 */
-.ph-deck .ph-card span { white-space: nowrap; }
+/* 占位卡文字永不换行，空间不足时裁剪而非折叠；禁止 flex 压缩把文字挤重叠 */
+.ph-deck .ph-card span { white-space: nowrap; flex-shrink: 0; }
 .ph-deck .ph-1 { transform: rotate(-5deg) translateX(-3px); opacity: .3; }
 .ph-deck .ph-2 { transform: rotate(4deg) translateX(3px); opacity: .5; }
 .ph-deck .ph-3 { transform: rotate(0); opacity: 1; z-index: 2; }
@@ -466,6 +469,20 @@ textarea:focus, input:focus { border-color: var(--c-cyan); box-shadow: 0 0 10px 
   .text-xs { font-size: 13px !important; }
   .ph-deck .ph-card span.text-\[11px\] { font-size: 12px !important; }
   .ph-deck .ph-card span.text-\[8px\] { font-size: 9px !important; }
+}
+/* 手机横屏（矮屏）虽落在 769-1023 宽度区间，但格子行高被压到 ~80px，
+   放大字号会让卡片内容超出格子导致文字重叠 —— 恢复紧凑字号 */
+@media (max-width: 1023px) and (orientation: landscape) and (max-height: 540px) {
+  .text-\[8px\] { font-size: 8px !important; }
+  .text-\[9px\] { font-size: 9px !important; }
+  .text-\[10px\] { font-size: 10px !important; }
+  .text-\[11px\] { font-size: 11px !important; }
+  .text-xs { font-size: 12px !important; }
+}
+/* 手机（≤768px）与手机横屏矮格：卡片行高不足，隐藏描述行与占位卡"待填充"文字，
+   只留 图标+名称+编号，杜绝上下重叠 */
+@media (max-width: 768px), (max-width: 1023px) and (orientation: landscape) and (max-height: 540px) {
+  .card-desc, .ph-fill { display: none; }
 }
 /* 手机/平板窄屏：占位卡简化为单张干净卡片，去掉旋转堆叠，避免折叠/挤压变形 */
 @media (max-width: 1023px) {

@@ -39,7 +39,7 @@ export function SiteCard({
         <div className="ph-card ph-2" />
         <div className="ph-card ph-3">
           <span className="text-base leading-none">⬡</span>
-          <span className="text-[11px] text-[var(--c-dim)]">待填充</span>
+          <span className="ph-fill text-[11px] text-[var(--c-dim)]">待填充</span>
           <span className="num text-[8px] tracking-[0.2em] text-[var(--c-dim)]">{link.no}</span>
         </div>
       </div>
@@ -54,7 +54,7 @@ export function SiteCard({
       role="link"
       tabIndex={0}
       aria-label={`${link.name} ${link.desc}`}
-      className="panel2 group relative flex h-full min-w-0 flex-col p-2.5 transition-[border-color] duration-150 hover:border-[var(--c-cyan)] hover:shadow-[0_0_14px_color-mix(in_srgb,var(--c-cyan)_25%,transparent)]"
+      className="panel2 group relative flex h-full min-w-0 flex-col overflow-hidden p-2 transition-[border-color] duration-150 hover:border-[var(--c-cyan)] hover:shadow-[0_0_14px_color-mix(in_srgb,var(--c-cyan)_25%,transparent)]"
       onClick={() => {
         if (suppressed.current) { suppressed.current = false; return; }
         window.open(link.url, "_blank", "noopener");
@@ -82,7 +82,7 @@ export function SiteCard({
       onPointerLeave={() => { cancel(); held.current = false; }}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-xl leading-none">{link.icon}</span>
+        <span className="text-lg leading-none">{link.icon}</span>
         <div className="flex items-start gap-1">
           <button
             type="button"
@@ -99,7 +99,7 @@ export function SiteCard({
         </div>
       </div>
       <div className="jittable mt-1 truncate text-xs font-medium group-hover:text-[var(--c-cyan)]">{link.name}</div>
-      <div className="mt-0.5 line-clamp-1 text-[10px] text-[var(--c-dim)]">{link.desc}</div>
+      <div className="card-desc mt-0.5 line-clamp-1 text-[10px] text-[var(--c-dim)]">{link.desc}</div>
       <div className="num mt-auto truncate pt-1 text-[8px] tracking-[0.16em] text-[var(--c-cyan)]">{link.no} ◈ {link.sub}</div>
     </div>
   );
