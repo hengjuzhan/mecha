@@ -57,6 +57,14 @@ export function RightRail() {
       if (cur.bgImage !== r.bgImage || cur.bgTone !== r.bgTone) {
         setSettings({ bgImage: r.bgImage, bgTone: r.bgTone });
       }
+      // 色调检测算法升级（平均亮度→直方图三态）：对存量背景自动重测一次，纠正旧版误判并回写云端
+      if (r.bgImage) {
+        void detectBgTone(r.bgImage).then((tone) => {
+          if (!tone || tone === r.bgTone) return;
+          setSettings({ bgTone: tone });
+          void cloud.bg.set(r.bgImage, tone).catch(() => undefined);
+        });
+      }
     });
   }, [isAdmin]);
 
@@ -67,7 +75,7 @@ export function RightRail() {
     try {
       const q = await cloud.bg.quotaConsume(isAdmin);
       if (!q.ok) { toast(`今日上传次数已用尽（每日共 10 次），明天再来吧`, "warn"); return; }
-      const tone = await detectBgTone(src);
+      const tone = (await detectBgTone(src)) ?? "dark";
       // Storage 二进制上传（移动网络下比 base64 走 JSON RPC 可靠得多）；失败回退 base64 直写
       const url = await cloud.bg.upload(src);
       let syncOk: boolean;
@@ -273,7 +281,9 @@ export function RightRail() {
             {s.bgImage && (
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[var(--c-dim)]">当前背景 · 已识别为：</span>
-                <span className={`num text-[10px] ${s.bgTone === "light" ? "text-[var(--c-orange)]" : "text-[var(--c-cyan)]"}`}>{s.bgTone === "light" ? "浅色（文字已转深色）" : "深色（文字保持浅色）"}</span>
+                <span className={`num text-[10px] ${s.bgTone === "light" ? "text-[var(--c-orange)]" : "text-[var(--c-cyan)]"}`}>
+                  {s.bgTone === "light" ? "浅色（文字已转深色）" : s.bgTone === "mixed" ? "明暗混杂（已加重衬底与文字描边）" : "深色（文字保持浅色）"}
+                </span>
                 <img src={s.bgImage} alt="背景预览" className="ml-auto h-10 w-20 rounded-sm border border-[var(--c-border)] object-cover" />
               </div>
             )}

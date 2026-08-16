@@ -136,13 +136,14 @@ async function textsSet(texts: Record<string, string>, token: string): Promise<b
 }
 
 /* ---------------- 共享背景 + 配额 ---------------- */
-export interface BgData { bgImage: string; bgTone: "dark" | "light" }
+export interface BgData { bgImage: string; bgTone: "dark" | "light" | "mixed" }
 
 async function bgGet(): Promise<BgData | null> {
   const r = await rpc<{ bg_image: string; bg_tone: string }[]>("bg_get", {}, 10000);
   const row = Array.isArray(r) ? r[0] : undefined;
   if (!row) return null;
-  return { bgImage: row.bg_image || "", bgTone: row.bg_tone === "light" ? "light" : "dark" };
+  const tone = row.bg_tone;
+  return { bgImage: row.bg_image || "", bgTone: tone === "light" || tone === "mixed" ? tone : "dark" };
 }
 
 /**

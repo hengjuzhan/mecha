@@ -80,7 +80,7 @@ export interface Settings {
   blendMode: "normal" | "screen" | "overlay" | "soft-light" | "multiply";
   homeTransparent: boolean;
   bgImage: string;
-  bgTone: "dark" | "light";
+  bgTone: "dark" | "light" | "mixed";
   supabase: SupabaseCfg | null;
   visitsDay: string;
   visitsTotal: number;

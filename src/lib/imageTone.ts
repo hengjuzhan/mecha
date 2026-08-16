@@ -1,24 +1,40 @@
-/** 检测图片平均亮度，返回深/浅色调，用于背景自适应适配文字颜色 */
-export async function detectBgTone(src: string): Promise<"dark" | "light"> {
+export type BgTone = "dark" | "light" | "mixed";
+
+/**
+ * 背景色调检测（三态）：dark=大面积暗（浅色文字可读）、light=大面积亮（深色文字可读）、
+ * mixed=明暗混杂（单靠文字换色救不回来，需加重模块衬底 + 文字阴影兜底）。
+ * 旧版全图平均亮度在"半亮半暗"的图上必然判错一半，这里改为亮/暗像素占比的直方图分析。
+ * 返回 null = 图片加载/跨域失败，调用方应保留原值而非猜测。
+ */
+export async function detectBgTone(src: string): Promise<BgTone | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
       try {
-        const size = 32;
+        const size = 64;
         const c = document.createElement("canvas");
         c.width = size; c.height = size;
         const ctx = c.getContext("2d", { willReadFrequently: true });
-        if (!ctx) { resolve("dark"); return; }
+        if (!ctx) { resolve(null); return; }
         ctx.drawImage(img, 0, 0, size, size);
         const d = ctx.getImageData(0, 0, size, size).data;
-        let lum = 0;
-        for (let i = 0; i < d.length; i += 4) lum += d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-        const avg = lum / (size * size);
-        resolve(avg < 128 ? "dark" : "light");
-      } catch { resolve("dark"); }
+        let dark = 0, light = 0;
+        const total = size * size;
+        for (let i = 0; i < d.length; i += 4) {
+          const lum = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+          if (lum < 90) dark++;
+          else if (lum > 170) light++;
+        }
+        const dr = dark / total, lr = light / total;
+        if (lr >= 0.55) resolve("light");
+        else if (dr >= 0.55) resolve("dark");
+        else if (lr >= 0.4 && lr > dr * 2) resolve("light");
+        else if (dr >= 0.4 && dr > lr * 2) resolve("dark");
+        else resolve("mixed");
+      } catch { resolve(null); }
     };
-    img.onerror = () => resolve("dark");
+    img.onerror = () => resolve(null);
     img.src = src;
   });
 }
